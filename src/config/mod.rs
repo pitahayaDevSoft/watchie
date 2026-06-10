@@ -18,6 +18,8 @@ pub struct Config {
 pub struct ApiConfig {
     #[serde(default)]
     pub tmdb_key: String,
+    #[serde(default)]
+    pub playimdb_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

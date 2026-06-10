@@ -13,6 +13,8 @@ pub enum Screen {
     CategoryList,
     MovieList,
     MovieDetail,
+    SeasonList,
+    EpisodeList,
     StreamSelect,
     DownloadProgress,
     Search,
@@ -45,12 +47,16 @@ pub struct App {
     pub scroll_offset: usize,
     pub detail_scroll: usize,
     pub selected_quality: usize,
+    pub selected_season: usize,
+    pub selected_episode: usize,
 
     // Data
     pub categories: &'static [crate::imdb::Category],
     pub movie_list: Vec<SearchResult>,
     pub current_movie: Option<Movie>,
     pub stream_info: Option<StreamInfo>,
+    pub season_list: Vec<crate::imdb::Season>,
+    pub episode_list: Vec<crate::imdb::Episode>,
     pub search_query: String,
     pub search_results: Vec<SearchResult>,
 
@@ -98,10 +104,14 @@ impl App {
             scroll_offset: 0,
             detail_scroll: 0,
             selected_quality: 0,
+            selected_season: 0,
+            selected_episode: 0,
             categories: CATEGORIES,
             movie_list: Vec::new(),
             current_movie: None,
             stream_info: None,
+            season_list: Vec::new(),
+            episode_list: Vec::new(),
             search_query: String::new(),
             search_results: Vec::new(),
             poster_cache: HashMap::new(),
@@ -143,6 +153,16 @@ impl App {
                     self.detail_scroll -= 1;
                 }
             }
+            Screen::SeasonList => {
+                if self.selected_season > 0 {
+                    self.selected_season -= 1;
+                }
+            }
+            Screen::EpisodeList => {
+                if self.selected_episode > 0 {
+                    self.selected_episode -= 1;
+                }
+            }
             _ => {}
         }
     }
@@ -178,6 +198,16 @@ impl App {
             Screen::MovieDetail => {
                 self.detail_scroll += 1;
             }
+            Screen::SeasonList => {
+                if self.selected_season + 1 < self.season_list.len() {
+                    self.selected_season += 1;
+                }
+            }
+            Screen::EpisodeList => {
+                if self.selected_episode + 1 < self.episode_list.len() {
+                    self.selected_episode += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -199,7 +229,15 @@ impl App {
         self.screen = match self.screen {
             Screen::MovieList => Screen::CategoryList,
             Screen::MovieDetail => Screen::MovieList,
-            Screen::StreamSelect => Screen::MovieDetail,
+            Screen::SeasonList => Screen::MovieDetail,
+            Screen::EpisodeList => Screen::SeasonList,
+            Screen::StreamSelect => {
+                if !self.episode_list.is_empty() {
+                    Screen::EpisodeList
+                } else {
+                    Screen::MovieDetail
+                }
+            }
             Screen::Search => Screen::Home,
             Screen::Help => Screen::Home,
             _ => Screen::Home,

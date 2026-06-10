@@ -223,9 +223,11 @@ Contains the `App` struct — the single source of truth for all TUI state.
 #### Screens (state machine)
 
 ```
-Home ──→ CategoryList ──→ MovieList ──→ MovieDetail ──→ StreamSelect
-  ↑                                                         │
-  └─────────────────────────────────────────────────────────┘
+Home ──→ CategoryList ──→ MovieList ──→ MovieDetail ──→ (if series) SeasonList ──→ EpisodeList ──→ StreamSelect
+  │                                           │                                                       │
+  │                                           └────── (if movie) ─────────────────────────────────────┤
+  ↑                                                                                                   │
+  └───────────────────────────────────────────────────────────────────────────────────────────────────┘
                                               ↓
                                        DownloadProgress
 Search ──→ (results as MovieList)
@@ -245,9 +247,13 @@ Setup  ──→ Home (after key set)
 | `scroll_offset` | `usize` | Scroll window start for movie list |
 | `detail_scroll` | `usize` | Line scroll offset in detail view |
 | `selected_quality` | `usize` | Cursor in stream select list |
+| `selected_season` | `usize` | Cursor in season list |
+| `selected_episode` | `usize` | Cursor in episode list |
 | `movie_list` | `Vec<SearchResult>` | Current category or search page |
 | `current_movie` | `Option<Movie>` | Fully loaded detail for selected title |
 | `stream_info` | `Option<StreamInfo>` | Parsed playimdb data |
+| `season_list` | `Vec<Season>` | Loaded seasons for the TV series |
+| `episode_list` | `Vec<Episode>` | Loaded episodes for the selected season |
 | `poster_cache` | `HashMap<String, Vec<u8>>` | Raw image bytes keyed by ID |
 | `download_progress` | `Option<DownloadProgress>` | Live progress for download screen |
 | `kitty_image_drawn` | `RefCell<Option<String>>` | Tracks drawn poster ID to prevent flicker |
@@ -274,13 +280,17 @@ Key mappings handled:
 | `g`/`Home`, `G`/`End` | List | Jump to first/last |
 | `Enter` | CategoryList | Load category, `→ Screen::MovieList` |
 | `Enter` | MovieList | Load detail, `→ Screen::MovieDetail` |
-| `Enter` | MovieDetail | Load streams, `→ Screen::StreamSelect` |
+| `Enter` | MovieDetail | If series `→ Screen::SeasonList`, else load streams `→ Screen::StreamSelect` |
+| `Enter` | SeasonList | Load episodes, `→ Screen::EpisodeList` |
+| `Enter` | EpisodeList | Load streams for episode, `→ Screen::StreamSelect` |
 | `Enter` | StreamSelect | Play selected stream |
 | `/`, `s` | Normal | `→ Screen::Search`, `InputMode::Searching` |
 | `c` | Any | `→ Screen::CategoryList` |
 | `r` | MovieList | Reload category |
 | `p` | MovieList/Detail | Fetch streams + play first |
+| `p` | EpisodeList | Fetch streams + play episode |
 | `d` | MovieList/Detail | Fetch streams + download first |
+| `d` | EpisodeList | Fetch streams + download episode |
 | `w` | MovieDetail | Load stream sources (pre-fetch) |
 | `i` | Any | Toggle Kitty image preview |
 | `Char` | Searching mode | Append to `search_query`, trigger search |

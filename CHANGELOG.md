@@ -8,7 +8,10 @@ Format: [keepachangelog.com](https://keepachangelog.com) · Versioning: [semver.
 ## [Unreleased]
 
 ### Added
-- (nothing yet)
+- TV Series season and episode TUI navigation screens (`SeasonList` and `EpisodeList`).
+- Dynamic probing, auto-rotation, and fallback sequence for playimdb.com mirrors (`playimdb.com`, `runimdb.com`, `streamimdb.com`, `directimdb.com`, `fastimdb.com`).
+- Embed iframe parsing as fallback stream quality when direct links are not present.
+- Subcommand to configure custom playimdb mirror url: `watchie config set-playimdb-url <url>`.
 
 ---
 

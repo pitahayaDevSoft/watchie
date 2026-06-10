@@ -29,6 +29,29 @@ pub struct Movie {
     pub metascore: Option<u8>,
     pub tagline: Option<String>,
     pub keywords: Vec<String>,
+    #[serde(default)]
+    pub season_list: Vec<Season>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Season {
+    pub season_number: u32,
+    pub episode_count: u32,
+    pub air_date: Option<String>,
+    pub name: String,
+    pub poster_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Episode {
+    pub episode_number: u32,
+    pub season_number: u32,
+    pub name: String,
+    pub overview: Option<String>,
+    pub air_date: Option<String>,
+    pub runtime: Option<u32>,
+    pub vote_average: Option<f32>,
+    pub still_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -352,6 +375,97 @@ impl ImdbClient {
         let bytes = resp.bytes().await?;
         Ok(bytes.to_vec())
     }
+
+    // ─── TV Seasons & Episodes details ────────────────────────────────────────
+
+    pub async fn get_season(&self, tv_id: &str, season_number: u32) -> Result<Vec<Episode>> {
+        let key = self.get_api_key()?;
+        let tmdb_id = if tv_id.starts_with("tv:") {
+            tv_id["tv:".len()..].parse::<i64>()?
+        } else if tv_id.starts_with("tt") {
+            let find_url = format!(
+                "https://api.themoviedb.org/3/find/{}?api_key={}&external_source=imdb_id",
+                tv_id, key
+            );
+            let resp_text = self.get_json_text(&find_url).await?;
+            let find_val: serde_json::Value = serde_json::from_str(&resp_text)?;
+            if let Some(tv) = find_val["tv_results"].as_array().and_then(|arr| arr.first()) {
+                tv["id"].as_i64().unwrap_or(0)
+            } else {
+                anyhow::bail!("TV series with IMDB ID {} not found on TMDB.", tv_id)
+            }
+        } else {
+            tv_id.parse::<i64>()?
+        };
+
+        let url = format!(
+            "https://api.themoviedb.org/3/tv/{}/season/{}?api_key={}&language=en-US",
+            tmdb_id, season_number, key
+        );
+        let text = self.get_json_text(&url).await?;
+        let v: serde_json::Value = serde_json::from_str(&text)?;
+
+        let mut episodes = Vec::new();
+        if let Some(arr) = v["episodes"].as_array() {
+            for ep in arr {
+                let name = ep["name"].as_str().unwrap_or("").to_string();
+                let overview = ep["overview"].as_str().map(|s| s.to_string());
+                let air_date = ep["air_date"].as_str().map(|s| s.to_string());
+                let episode_number = ep["episode_number"].as_u64().unwrap_or(0) as u32;
+                let season_number = ep["season_number"].as_u64().unwrap_or(0) as u32;
+                let rating = ep["vote_average"].as_f64().map(|r| r as f32);
+                let runtime = ep["runtime"].as_u64().map(|r| r as u32);
+                let still_path = ep["still_path"].as_str();
+                let still_url = still_path.map(|p| format!("https://image.tmdb.org/t/p/w300{}", p));
+
+                episodes.push(Episode {
+                    episode_number,
+                    season_number,
+                    name,
+                    overview,
+                    air_date,
+                    runtime,
+                    vote_average: rating,
+                    still_url,
+                });
+            }
+        }
+        Ok(episodes)
+    }
+
+    pub async fn get_episode_imdb_id(&self, tv_id: &str, season: u32, episode: u32) -> Result<String> {
+        let key = self.get_api_key()?;
+        let tmdb_id = if tv_id.starts_with("tv:") {
+            tv_id["tv:".len()..].parse::<i64>()?
+        } else if tv_id.starts_with("tt") {
+            let find_url = format!(
+                "https://api.themoviedb.org/3/find/{}?api_key={}&external_source=imdb_id",
+                tv_id, key
+            );
+            let resp_text = self.get_json_text(&find_url).await?;
+            let find_val: serde_json::Value = serde_json::from_str(&resp_text)?;
+            if let Some(tv) = find_val["tv_results"].as_array().and_then(|arr| arr.first()) {
+                tv["id"].as_i64().unwrap_or(0)
+            } else {
+                anyhow::bail!("TV series with IMDB ID {} not found on TMDB.", tv_id)
+            }
+        } else {
+            tv_id.parse::<i64>()?
+        };
+
+        let url = format!(
+            "https://api.themoviedb.org/3/tv/{}/season/{}/episode/{}/external_ids?api_key={}",
+            tmdb_id, season, episode, key
+        );
+        let text = self.get_json_text(&url).await?;
+        let v: serde_json::Value = serde_json::from_str(&text)?;
+        if let Some(imdb_id) = v["imdb_id"].as_str() {
+            if !imdb_id.is_empty() {
+                return Ok(imdb_id.to_string());
+            }
+        }
+        anyhow::bail!("No IMDb ID found for TV episode")
+    }
 }
 
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
@@ -450,6 +564,7 @@ fn map_tmdb_movie_to_movie(v: &serde_json::Value) -> Movie {
         metascore: rating.map(|r| (r * 10.0) as u8),
         tagline,
         keywords,
+        season_list: Vec::new(),
     }
 }
 
@@ -519,6 +634,23 @@ fn map_tmdb_tv_to_movie(v: &serde_json::Value) -> Movie {
     let episodes = v["number_of_episodes"].as_u64().map(|e| e as u32);
     let seasons = v["number_of_seasons"].as_u64().map(|s| s as u32);
 
+    let season_list = v["seasons"].as_array()
+        .map(|arr| arr.iter().map(|s| {
+            let season_number = s["season_number"].as_u64().unwrap_or(0) as u32;
+            let episode_count = s["episode_count"].as_u64().unwrap_or(0) as u32;
+            let air_date = s["air_date"].as_str().map(|d| d.to_string());
+            let name = s["name"].as_str().unwrap_or(&format!("Season {}", season_number)).to_string();
+            let poster_path = s["poster_path"].as_str().map(|p| format!("https://image.tmdb.org/t/p/w500{}", p));
+            Season {
+                season_number,
+                episode_count,
+                air_date,
+                name,
+                poster_path,
+            }
+        }).collect())
+        .unwrap_or_default();
+
     Movie {
         id: if id.is_empty() { format!("tv:{}", tmdb_id) } else { id },
         title,
@@ -544,5 +676,6 @@ fn map_tmdb_tv_to_movie(v: &serde_json::Value) -> Movie {
         metascore: rating.map(|r| (r * 10.0) as u8),
         tagline,
         keywords,
+        season_list,
     }
 }

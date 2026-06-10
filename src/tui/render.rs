@@ -86,6 +86,15 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             let title = app.current_movie.as_ref().map(|m| m.title.as_str()).unwrap_or("Detail");
             format!(" Movies › {}", title)
         }
+        Screen::SeasonList => {
+            let title = app.current_movie.as_ref().map(|m| m.title.as_str()).unwrap_or("Detail");
+            format!(" TV Series › {} › Seasons", title)
+        }
+        Screen::EpisodeList => {
+            let title = app.current_movie.as_ref().map(|m| m.title.as_str()).unwrap_or("Detail");
+            let season_num = app.season_list.get(app.selected_season).map(|s| s.season_number).unwrap_or(1);
+            format!(" TV Series › {} › Season {}", title, season_num)
+        }
         Screen::StreamSelect => " Stream Select".to_string(),
         Screen::DownloadProgress => " Downloading…".to_string(),
         Screen::Search => format!(" Search: {}", app.search_query),
@@ -129,6 +138,8 @@ fn draw_body(f: &mut Frame, app: &App, area: Rect) {
         Screen::CategoryList => draw_category_list(f, app, area),
         Screen::MovieList | Screen::Search => draw_movie_list(f, app, area),
         Screen::MovieDetail => draw_movie_detail(f, app, area),
+        Screen::SeasonList => draw_season_list(f, app, area),
+        Screen::EpisodeList => draw_episode_list(f, app, area),
         Screen::StreamSelect => draw_stream_select(f, app, area),
         Screen::DownloadProgress => draw_download_progress(f, app, area),
         Screen::Help => draw_help(f, app, area),
@@ -1112,4 +1123,209 @@ fn draw_setup(f: &mut Frame, _app: &App, area: Rect) {
     ];
 
     f.render_widget(Paragraph::new(text), inner);
+}
+
+// ─── TV Season List screen ───────────────────────────────────────────────────
+
+fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
+    let Some(movie) = &app.current_movie else {
+        return;
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(area);
+
+    // Left: Seasons List
+    let block = Block::default()
+        .title(Span::styled(" 📅 Seasons ", Style::default().fg(C_ACCENT).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER))
+        .style(Style::default().bg(C_SURFACE));
+
+    let items: Vec<ListItem> = app
+        .season_list
+        .iter()
+        .enumerate()
+        .map(|(i, season)| {
+            let is_selected = i == app.selected_season;
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let style = if is_selected {
+                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD).bg(C_SURFACE2)
+            } else {
+                Style::default().fg(C_TEXT)
+            };
+            ListItem::new(format!("{}{}", prefix, season.name)).style(style)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.selected_season));
+    f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
+
+    // Right: Selected Season Details
+    let details_block = Block::default()
+        .title(Span::styled(" ℹ️  Season Details ", Style::default().fg(C_ACCENT2).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER))
+        .style(Style::default().bg(C_SURFACE));
+    
+    let inner_area = details_block.inner(chunks[1]);
+    f.render_widget(details_block, chunks[1]);
+
+    if let Some(season) = app.season_list.get(app.selected_season) {
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Show:         ", Style::default().fg(C_MUTED)),
+                Span::styled(&movie.title, Style::default().fg(C_TEXT)),
+            ]),
+            Line::from(vec![
+                Span::styled("Title:        ", Style::default().fg(C_MUTED)),
+                Span::styled(&season.name, Style::default().fg(C_TEXT).bold()),
+            ]),
+            Line::from(vec![
+                Span::styled("Season Num:   ", Style::default().fg(C_MUTED)),
+                Span::styled(season.season_number.to_string(), Style::default().fg(C_TEXT)),
+            ]),
+            Line::from(vec![
+                Span::styled("Episodes:     ", Style::default().fg(C_MUTED)),
+                Span::styled(season.episode_count.to_string(), Style::default().fg(C_ACCENT2).bold()),
+            ]),
+        ];
+
+        if let Some(ref air_date) = season.air_date {
+            lines.push(Line::from(vec![
+                Span::styled("Air Date:     ", Style::default().fg(C_MUTED)),
+                Span::styled(air_date, Style::default().fg(C_TEXT)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Press [Enter] to browse episodes", Style::default().fg(C_GREEN).bold())));
+        lines.push(Line::from(Span::styled("Press [Esc] to go back to series detail", Style::default().fg(C_MUTED))));
+
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: false }),
+            inner_area,
+        );
+    }
+}
+
+// ─── TV Episode List screen ──────────────────────────────────────────────────
+
+fn draw_episode_list(f: &mut Frame, app: &App, area: Rect) {
+    let Some(movie) = &app.current_movie else {
+        return;
+    };
+    let Some(season) = app.season_list.get(app.selected_season) else {
+        return;
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(area);
+
+    // Left: Episodes List
+    let title_str = format!(" 📺 {} - Episodes ", season.name);
+    let block = Block::default()
+        .title(Span::styled(title_str, Style::default().fg(C_ACCENT).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER))
+        .style(Style::default().bg(C_SURFACE));
+
+    let items: Vec<ListItem> = app
+        .episode_list
+        .iter()
+        .enumerate()
+        .map(|(i, ep)| {
+            let is_selected = i == app.selected_episode;
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let style = if is_selected {
+                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD).bg(C_SURFACE2)
+            } else {
+                Style::default().fg(C_TEXT)
+            };
+            ListItem::new(format!("{}E{:02}: {}", prefix, ep.episode_number, ep.name)).style(style)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.selected_episode));
+    f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
+
+    // Right: Selected Episode details
+    let details_block = Block::default()
+        .title(Span::styled(" ℹ️  Episode Details ", Style::default().fg(C_ACCENT2).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER))
+        .style(Style::default().bg(C_SURFACE));
+    
+    let inner_area = details_block.inner(chunks[1]);
+    f.render_widget(details_block, chunks[1]);
+
+    if let Some(episode) = app.episode_list.get(app.selected_episode) {
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Show:         ", Style::default().fg(C_MUTED)),
+                Span::styled(&movie.title, Style::default().fg(C_TEXT)),
+            ]),
+            Line::from(vec![
+                Span::styled("Season / Ep:  ", Style::default().fg(C_MUTED)),
+                Span::styled(format!("Season {}, Episode {}", episode.season_number, episode.episode_number), Style::default().fg(C_TEXT).bold()),
+            ]),
+            Line::from(vec![
+                Span::styled("Title:        ", Style::default().fg(C_MUTED)),
+                Span::styled(&episode.name, Style::default().fg(C_ACCENT2).bold()),
+            ]),
+        ];
+
+        if let Some(ref air) = episode.air_date {
+            lines.push(Line::from(vec![
+                Span::styled("Air Date:     ", Style::default().fg(C_MUTED)),
+                Span::styled(air, Style::default().fg(C_TEXT)),
+            ]));
+        }
+
+        if let Some(rating) = episode.vote_average {
+            lines.push(Line::from(vec![
+                Span::styled("Rating:       ", Style::default().fg(C_MUTED)),
+                Span::styled(format!("★ {:.1}/10", rating), Style::default().fg(C_ACCENT).bold()),
+            ]));
+        }
+
+        if let Some(runtime) = episode.runtime {
+            lines.push(Line::from(vec![
+                Span::styled("Runtime:      ", Style::default().fg(C_MUTED)),
+                Span::styled(format!("{} min", runtime), Style::default().fg(C_TEXT)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Overview:", Style::default().fg(C_MUTED).bold())));
+
+        if let Some(ref overview) = episode.overview {
+            let max_w = inner_area.width.saturating_sub(4) as usize;
+            for line in wrap_text(overview, max_w) {
+                lines.push(Line::from(Span::styled(format!("  {}", line), Style::default().fg(C_TEXT))));
+            }
+        } else {
+            lines.push(Line::from(Span::styled("  No overview available.", Style::default().fg(C_MUTED))));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Press [Enter] / [p] to Play Episode", Style::default().fg(C_GREEN).bold())));
+        lines.push(Line::from(Span::styled("Press [d] to Download Episode", Style::default().fg(C_ACCENT2).bold())));
+        lines.push(Line::from(Span::styled("Press [Esc] to go back to season list", Style::default().fg(C_MUTED))));
+
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: false }),
+            inner_area,
+        );
+    }
 }

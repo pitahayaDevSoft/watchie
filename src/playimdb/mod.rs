@@ -40,35 +40,105 @@ pub struct TorrentLink {
 
 // ─── PlayIMDB client ──────────────────────────────────────────────────────────
 
+const PLAYIMDB_MIRRORS: &[&str] = &[
+    "https://playimdb.com",
+    "https://runimdb.com",
+    "https://streamimdb.com",
+    "https://directimdb.com",
+    "https://fastimdb.com",
+];
+
 pub struct PlayImdbClient {
     client: reqwest::Client,
     base_url: String,
+    is_custom_url: bool,
+    active_mirror_index: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl PlayImdbClient {
     pub fn new() -> Result<Self> {
+        if let Ok(cfg) = crate::config::Config::load() {
+            Self::new_with_config(&cfg)
+        } else {
+            let client = reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
+                .cookie_store(true)
+                .timeout(std::time::Duration::from_secs(30))
+                .build()?;
+            Ok(Self {
+                client,
+                base_url: "https://playimdb.com".to_string(),
+                is_custom_url: false,
+                active_mirror_index: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            })
+        }
+    }
+
+    pub fn new_with_config(config: &crate::config::Config) -> Result<Self> {
         let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
+            .user_agent(&config.network.user_agent)
             .cookie_store(true)
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(config.network.timeout_secs))
             .build()?;
+        let (base_url, is_custom_url) = if let Some(ref url) = config.api.playimdb_url {
+            (url.trim_end_matches('/').to_string(), true)
+        } else {
+            ("https://playimdb.com".to_string(), false)
+        };
         Ok(Self {
             client,
-            base_url: "https://playimdb.com".to_string(),
+            base_url,
+            is_custom_url,
+            active_mirror_index: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         })
     }
 
-    async fn get_html(&self, url: &str) -> Result<String> {
-        let resp = self.client.get(url).send().await?;
-        Ok(resp.text().await?)
+    async fn get_html(&self, path: &str) -> Result<(String, String)> {
+        if self.is_custom_url {
+            let url = format!("{}{}", self.base_url, path);
+            let resp = self.client.get(&url).send().await?;
+            let text = resp.text().await?;
+            return Ok((url, text));
+        }
+
+        let index = self.active_mirror_index.load(std::sync::atomic::Ordering::Relaxed);
+        let mut mirrors = PLAYIMDB_MIRRORS.to_vec();
+        if index < mirrors.len() {
+            mirrors.rotate_left(index);
+        }
+
+        let mut last_err = None;
+        for (i, &mirror) in mirrors.iter().enumerate() {
+            let url = format!("{}{}", mirror, path);
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                self.client.get(&url).send()
+            ).await {
+                Ok(Ok(resp)) => {
+                    if resp.status().is_success() {
+                        if let Ok(text) = resp.text().await {
+                            let original_index = (index + i) % PLAYIMDB_MIRRORS.len();
+                            self.active_mirror_index.store(original_index, std::sync::atomic::Ordering::Relaxed);
+                            return Ok((url, text));
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    last_err = Some(anyhow::anyhow!(e));
+                }
+                Err(_) => {
+                    last_err = Some(anyhow::anyhow!("Timeout connecting to {}", mirror));
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("All playimdb mirrors failed")))
     }
 
     /// Search playimdb.com for an IMDB ID and return stream info.
     pub async fn get_stream_info(&self, imdb_id: &str) -> Result<StreamInfo> {
-        // playimdb.com accepts direct IMDB tt IDs
-        let url = format!("{}/title/{}", self.base_url, imdb_id);
-        let html = self.get_html(&url).await?;
-        self.parse_stream_page(&html, &url)
+        let path = format!("/title/{}", imdb_id);
+        let (resolved_url, html) = self.get_html(&path).await?;
+        self.parse_stream_page(&html, &resolved_url)
     }
 
     /// Also try a generic search on playimdb.com by title
@@ -79,8 +149,8 @@ impl PlayImdbClient {
             title.to_string()
         };
         let encoded = urlencoding::encode(&query);
-        let url = format!("{}/search?q={}", self.base_url, encoded);
-        let html = self.get_html(&url).await?;
+        let path = format!("/search?q={}", encoded);
+        let (_resolved_url, html) = self.get_html(&path).await?;
         self.parse_search_results(&html)
     }
 
@@ -150,10 +220,22 @@ impl PlayImdbClient {
             .and_then(|el| el.value().attr("src"))
             .map(String::from);
 
+        let mut qualities = qualities;
+        if qualities.is_empty() {
+            if let Some(ref url) = direct_url {
+                qualities.push(Quality {
+                    label: "Web Embed / Default Stream".to_string(),
+                    url: url.clone(),
+                    size_bytes: None,
+                    format: "html".to_string(),
+                });
+            }
+        }
+
         Ok(StreamInfo {
             title,
             stream_url: page_url.to_string(),
-            direct_url,
+            direct_url: direct_url.clone(),
             file_size: qualities.first().and_then(|q| q.size_bytes),
             qualities,
             torrent_links,

@@ -23,6 +23,7 @@ pub enum AppMsg {
     DownloadProgress(u64, Option<u64>, f64),
     DownloadDone(String),
     Error(String),
+    EpisodesLoaded(Vec<crate::imdb::Episode>),
 }
 
 pub async fn run_event_loop(
@@ -103,6 +104,12 @@ fn handle_msg(app: &mut App, msg: AppMsg) {
             app.detail_scroll = 0;
             app.loading = LoadingState::Idle;
             app.screen = Screen::MovieDetail;
+        }
+        AppMsg::EpisodesLoaded(episodes) => {
+            app.episode_list = episodes;
+            app.selected_episode = 0;
+            app.loading = LoadingState::Idle;
+            app.screen = Screen::EpisodeList;
         }
         AppMsg::StreamInfoLoaded(info) => {
             app.stream_info = Some(info);
@@ -229,12 +236,20 @@ async fn handle_normal_key(
 
         // Play action from movie list (shortcut)
         KeyCode::Char('p') => {
-            play_selected(app, tx, true).await?;
+            if app.screen == Screen::EpisodeList {
+                load_episode_stream_info(app, tx).await;
+            } else {
+                play_selected(app, tx, true).await?;
+            }
         }
 
         // Download action from movie list (shortcut)
         KeyCode::Char('d') => {
-            play_selected(app, tx, false).await?;
+            if app.screen == Screen::EpisodeList {
+                load_episode_stream_info(app, tx).await;
+            } else {
+                play_selected(app, tx, false).await?;
+            }
         }
 
         // Open stream select from detail
@@ -327,8 +342,43 @@ async fn on_enter(app: &mut App, tx: mpsc::UnboundedSender<AppMsg>) -> Result<()
             }
         }
         Screen::MovieDetail => {
-            // Enter on detail → open stream selection
-            load_stream_info(app, tx).await;
+            if let Some(movie) = &app.current_movie {
+                if movie.content_type == crate::imdb::ContentType::Series {
+                    app.season_list = movie.season_list.clone();
+                    app.selected_season = 0;
+                    app.screen = Screen::SeasonList;
+                } else {
+                    load_stream_info(app, tx).await;
+                }
+            }
+        }
+        Screen::SeasonList => {
+            if let Some(movie) = &app.current_movie {
+                if let Some(season) = app.season_list.get(app.selected_season) {
+                    let tv_id = movie.id.clone();
+                    let season_num = season.season_number;
+                    app.loading = LoadingState::Loading(format!("Loading Season {} episodes…", season_num));
+                    let tx2 = tx.clone();
+                    tokio::spawn(async move {
+                        match ImdbClient::new() {
+                            Ok(client) => match client.get_season(&tv_id, season_num).await {
+                                Ok(episodes) => {
+                                    let _ = tx2.send(AppMsg::EpisodesLoaded(episodes));
+                                }
+                                Err(e) => {
+                                    let _ = tx2.send(AppMsg::Error(e.to_string()));
+                                }
+                            },
+                            Err(e) => {
+                                let _ = tx2.send(AppMsg::Error(e.to_string()));
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        Screen::EpisodeList => {
+            load_episode_stream_info(app, tx).await;
         }
         Screen::StreamSelect => {
             // Enter on stream → play or download based on selected item
@@ -398,6 +448,78 @@ async fn load_stream_info(app: &mut App, tx: mpsc::UnboundedSender<AppMsg>) {
                 Err(e) => { let _ = tx.send(AppMsg::Error(e.to_string())); }
             }
         });
+    }
+}
+
+async fn load_episode_stream_info(app: &mut App, tx: mpsc::UnboundedSender<AppMsg>) {
+    if let Some(movie) = &app.current_movie {
+        if let Some(episode) = app.episode_list.get(app.selected_episode) {
+            let tv_id = movie.id.clone();
+            let series_title = movie.title.clone();
+            let season = episode.season_number;
+            let ep_num = episode.episode_number;
+            let ep_name = episode.name.clone();
+            let year = movie.year;
+
+            app.loading = LoadingState::Loading(format!("Fetching streams for S{:02}E{:02}…", season, ep_num));
+            tokio::spawn(async move {
+                match ImdbClient::new() {
+                    Ok(imdb_client) => {
+                        let mut ep_imdb_id = None;
+                        if let Ok(id) = imdb_client.get_episode_imdb_id(&tv_id, season, ep_num).await {
+                            ep_imdb_id = Some(id);
+                        }
+
+                        match PlayImdbClient::new() {
+                            Ok(play_client) => {
+                                let mut res = Err(anyhow::anyhow!("No stream found"));
+                                
+                                if let Some(ref id) = ep_imdb_id {
+                                    res = play_client.get_stream_info(id).await;
+                                }
+                                
+                                if res.is_err() || res.as_ref().map(|info| info.qualities.is_empty() && info.torrent_links.is_empty()).unwrap_or(true) {
+                                    let query = format!("{} S{:02}E{:02}", series_title, season, ep_num);
+                                    if let Ok(search_results) = play_client.search_by_title(&query, year).await {
+                                        if let Some(first_match) = search_results.first() {
+                                            if let Ok(detail) = play_client.get_stream_info(&first_match.stream_url).await {
+                                                res = Ok(detail);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if res.is_err() || res.as_ref().map(|info| info.qualities.is_empty() && info.torrent_links.is_empty()).unwrap_or(true) {
+                                    if let Ok(search_results) = play_client.search_by_title(&series_title, year).await {
+                                        if let Some(first_match) = search_results.first() {
+                                            if let Ok(detail) = play_client.get_stream_info(&first_match.stream_url).await {
+                                                res = Ok(detail);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                match res {
+                                    Ok(mut info) => {
+                                        info.title = format!("{} - S{:02}E{:02} - {}", series_title, season, ep_num, ep_name);
+                                        let _ = tx.send(AppMsg::StreamInfoLoaded(info));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(AppMsg::Error(e.to_string()));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppMsg::Error(e.to_string()));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppMsg::Error(e.to_string()));
+                    }
+                }
+            });
+        }
     }
 }
 

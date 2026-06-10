@@ -92,6 +92,11 @@ pub enum ConfigAction {
         /// TMDB API key
         key: String,
     },
+    /// Set a custom playimdb URL (or mirror)
+    SetPlayimdbUrl {
+        /// Custom URL (e.g. https://runimdb.com)
+        url: String,
+    },
     /// Show config file path
     Path,
 }

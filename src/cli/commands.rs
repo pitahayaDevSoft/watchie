@@ -354,6 +354,16 @@ pub async fn config_cmd(action: ConfigAction, current: &Config) -> Result<()> {
             cfg.save()?;
             println!("✅ TMDB API key set successfully.");
         }
+        ConfigAction::SetPlayimdbUrl { url } => {
+            let mut cfg = current.clone();
+            cfg.api.playimdb_url = if url.trim().is_empty() {
+                None
+            } else {
+                Some(url.trim().to_string())
+            };
+            cfg.save()?;
+            println!("✅ Custom playimdb URL set successfully.");
+        }
         ConfigAction::Path => {
             println!("{}", Config::config_path()?.display());
         }
