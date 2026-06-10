@@ -314,3 +314,13 @@ pub fn format_size(bytes: u64) -> String {
         format!("{} KB", bytes / 1024)
     }
 }
+
+pub fn extract_origin(url_str: &str) -> Option<String> {
+    if let Ok(u) = url::Url::parse(url_str) {
+        if let Some(host) = u.host_str() {
+            let scheme = u.scheme();
+            return Some(format!("{}://{}/", scheme, host));
+        }
+    }
+    None
+}

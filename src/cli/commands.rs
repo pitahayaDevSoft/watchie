@@ -191,11 +191,12 @@ pub async fn download_or_play(
     }
 
     // Pick first quality automatically (CLI mode — no interaction)
+    let referer = crate::playimdb::extract_origin(&stream_info.stream_url);
     if play_mode {
         if let Some(q) = stream_info.qualities.first() {
-            let cmd_str = player::build_command_string(config, &q.url);
+            let cmd_str = player::build_command_string(config, &q.url, referer.as_deref());
             println!("\n▶️  Opening with: {}…", cmd_str);
-            player::play(&q.url, config).await?;
+            player::play(&q.url, referer.as_deref(), config).await?;
         } else if let Some(t) = stream_info.torrent_links.first() {
             if let Some(magnet) = &t.magnet {
                 println!("\n🧲 Opening magnet link…");
@@ -222,7 +223,7 @@ pub async fn download_or_play(
 
             // Probe size first
             let downloader = Downloader::new()?;
-            if let Ok(Some(size)) = downloader.probe_size(&q.url).await {
+            if let Ok(Some(size)) = downloader.probe_size(&q.url, referer.as_deref()).await {
                 println!("\n📦 File size: {}", format_size(size));
             }
 
@@ -234,7 +235,7 @@ pub async fn download_or_play(
             let last_print = Arc::new(Mutex::new(Instant::now()));
 
             downloader
-                .download(&q.url, &dest, move |downloaded, total| {
+                .download(&q.url, referer.as_deref(), &dest, move |downloaded, total| {
                     let mut lp = last_print.lock().unwrap();
                     if lp.elapsed().as_millis() > 500 {
                         *lp = Instant::now();

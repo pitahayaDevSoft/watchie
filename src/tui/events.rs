@@ -593,18 +593,20 @@ async fn execute_stream_action(
     if let Some(info) = &app.stream_info {
         let qi = app.selected_quality;
         let num_qualities = info.qualities.len();
+        let referer = crate::playimdb::extract_origin(&info.stream_url);
 
         if qi < num_qualities {
             let url = info.qualities[qi].url.clone();
             let config = app.config.clone();
+            let referer_clone = referer.clone();
             if play_mode {
-                let cmd_str = player::build_command_string(&config, &url);
+                let cmd_str = player::build_command_string(&config, &url, referer.as_deref());
                 app.set_status(
                     format!("▶️  Launching: {}…", cmd_str),
                     StatusStyle::Info,
                 );
                 tokio::spawn(async move {
-                    let _ = player::play(&url, &config).await;
+                    let _ = player::play(&url, referer_clone.as_deref(), &config).await;
                 });
             } else {
                 // Download
@@ -624,6 +626,7 @@ async fn execute_stream_action(
 
                 let tx2 = tx.clone();
                 let dest_str = dest.display().to_string();
+                let referer_dl = referer_clone.clone();
                 tokio::spawn(async move {
                     config.ensure_download_dir().ok();
                     match Downloader::new() {
@@ -633,7 +636,7 @@ async fn execute_stream_action(
                             let start = Arc::new(Mutex::new(Instant::now()));
                             let tx3 = tx2.clone();
                             let _ = dl
-                                .download(&url, &dest, move |dl, tot| {
+                                .download(&url, referer_dl.as_deref(), &dest, move |dl, tot| {
                                     let elapsed = start.lock().unwrap().elapsed().as_secs_f64();
                                     let speed = if elapsed > 0.0 { dl as f64 / elapsed } else { 0.0 };
                                     let _ = tx3.send(AppMsg::DownloadProgress(dl, tot, speed));

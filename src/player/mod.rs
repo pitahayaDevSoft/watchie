@@ -5,11 +5,20 @@ use tokio::process::Command;
 use crate::config::Config;
 
 /// Launch the configured media player with the given URL or file path.
-pub async fn play(url: &str, config: &Config) -> Result<()> {
+pub async fn play(url: &str, referer: Option<&str>, config: &Config) -> Result<()> {
     let player = &config.player.command;
-    let args = &config.player.extra_args;
+    let mut args = config.player.extra_args.clone();
 
-    tracing::info!("Launching player: {} {}", player, url);
+    // Dynamically inject referer arguments if player is mpv or vlc
+    if let Some(ref_val) = referer {
+        if player == "mpv" {
+            args.push(format!("--referrer={}", ref_val));
+        } else if player == "vlc" {
+            args.push(format!("--http-referrer={}", ref_val));
+        }
+    }
+
+    tracing::info!("Launching player: {} {} with referer: {:?}", player, url, referer);
 
     let mut cmd = Command::new(player);
     cmd.args(args);
@@ -35,9 +44,16 @@ pub fn detect_best_player() -> Option<String> {
 }
 
 /// Build the player launch command as a string for display purposes.
-pub fn build_command_string(config: &Config, url: &str) -> String {
+pub fn build_command_string(config: &Config, url: &str, referer: Option<&str>) -> String {
     let mut parts = vec![config.player.command.clone()];
     parts.extend(config.player.extra_args.clone());
+    if let Some(ref_val) = referer {
+        if config.player.command == "mpv" {
+            parts.push(format!("--referrer={}", ref_val));
+        } else if config.player.command == "vlc" {
+            parts.push(format!("--http-referrer={}", ref_val));
+        }
+    }
     parts.push(url.to_string());
     parts.join(" ")
 }

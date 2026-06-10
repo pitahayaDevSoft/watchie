@@ -23,13 +23,18 @@ impl Downloader {
     pub async fn download<F>(
         &self,
         url: &str,
+        referer: Option<&str>,
         dest: &Path,
         on_progress: F,
     ) -> Result<PathBuf>
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
     {
-        let resp = self.client.get(url).send().await
+        let mut builder = self.client.get(url);
+        if let Some(ref_val) = referer {
+            builder = builder.header("Referer", ref_val);
+        }
+        let resp = builder.send().await
             .with_context(|| format!("Fetching {}", url))?;
 
         let total = resp.content_length();
@@ -51,8 +56,12 @@ impl Downloader {
     }
 
     /// Get the Content-Length of a URL without downloading it.
-    pub async fn probe_size(&self, url: &str) -> Result<Option<u64>> {
-        let resp = self.client.head(url).send().await?;
+    pub async fn probe_size(&self, url: &str, referer: Option<&str>) -> Result<Option<u64>> {
+        let mut builder = self.client.head(url);
+        if let Some(ref_val) = referer {
+            builder = builder.header("Referer", ref_val);
+        }
+        let resp = builder.send().await?;
         Ok(resp.content_length())
     }
 
