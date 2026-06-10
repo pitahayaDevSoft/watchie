@@ -220,7 +220,6 @@ impl PlayImdbClient {
             .and_then(|el| el.value().attr("src"))
             .map(String::from);
 
-        let mut qualities = qualities;
         if qualities.is_empty() {
             if let Some(ref url) = direct_url {
                 qualities.push(Quality {

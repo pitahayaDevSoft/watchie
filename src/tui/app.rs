@@ -169,10 +169,8 @@ impl App {
                     self.selected_season -= 1;
                 }
             }
-            Screen::EpisodeList => {
-                if self.selected_episode > 0 {
-                    self.selected_episode -= 1;
-                }
+            Screen::EpisodeList if self.selected_episode > 0 => {
+                self.selected_episode -= 1;
             }
             _ => {}
         }
@@ -214,10 +212,8 @@ impl App {
                     self.selected_season += 1;
                 }
             }
-            Screen::EpisodeList => {
-                if self.selected_episode + 1 < self.episode_list.len() {
-                    self.selected_episode += 1;
-                }
+            Screen::EpisodeList if self.selected_episode + 1 < self.episode_list.len() => {
+                self.selected_episode += 1;
             }
             _ => {}
         }

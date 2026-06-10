@@ -16,7 +16,7 @@ use crate::player;
 #[derive(Debug)]
 pub enum AppMsg {
     MovieListLoaded(Vec<crate::imdb::SearchResult>),
-    MovieDetailLoaded(crate::imdb::Movie),
+    MovieDetailLoaded(Box<crate::imdb::Movie>),
     StreamInfoLoaded(crate::playimdb::StreamInfo),
     PosterLoaded(String, Vec<u8>), // (imdb_id, bytes)
     SearchDone(Vec<crate::imdb::SearchResult>),
@@ -101,7 +101,7 @@ fn handle_msg(app: &mut App, msg: AppMsg, tx: mpsc::UnboundedSender<AppMsg>) {
             app.loading = LoadingState::Idle;
         }
         AppMsg::MovieDetailLoaded(movie) => {
-            app.current_movie = Some(movie);
+            app.current_movie = Some(*movie);
             app.detail_scroll = 0;
             app.loading = LoadingState::Idle;
             app.screen = Screen::MovieDetail;
@@ -248,7 +248,7 @@ async fn handle_normal_key(
             if len > 0 {
                 app.selected_movie = len - 1;
                 let page = app.config.ui.page_size;
-                app.scroll_offset = if len > page { len - page } else { 0 };
+                app.scroll_offset = len.saturating_sub(page);
             }
         }
 
@@ -317,10 +317,8 @@ async fn handle_normal_key(
         }
 
         // Open standalone stream in browser
-        KeyCode::Char('o') => {
-            if app.screen == Screen::MovieDetail || app.screen == Screen::StreamSelect || app.screen == Screen::EpisodeList {
-                open_current_in_browser(app).await;
-            }
+        KeyCode::Char('o') if app.screen == Screen::MovieDetail || app.screen == Screen::StreamSelect || app.screen == Screen::EpisodeList => {
+            open_current_in_browser(app).await;
         }
 
         _ => {}
@@ -462,7 +460,7 @@ async fn load_movie_detail(app: &mut App, id: String, tx: mpsc::UnboundedSender<
     tokio::spawn(async move {
         match ImdbClient::new() {
             Ok(client) => match client.get_movie(&id).await {
-                Ok(m) => { let _ = tx.send(AppMsg::MovieDetailLoaded(m)); }
+                Ok(m) => { let _ = tx.send(AppMsg::MovieDetailLoaded(Box::new(m))); }
                 Err(e) => { let _ = tx.send(AppMsg::Error(e.to_string())); }
             }
             Err(e) => { let _ = tx.send(AppMsg::Error(e.to_string())); }

@@ -240,11 +240,11 @@ impl ImdbClient {
                 return self.get_movie_by_tmdb_id(tmdb_id, false).await;
             }
             anyhow::bail!("Title with IMDB ID {} not found on TMDB.", id)
-        } else if id.starts_with("movie:") {
-            let tmdb_id = id["movie:".len()..].parse::<i64>()?;
+        } else if let Some(stripped) = id.strip_prefix("movie:") {
+            let tmdb_id = stripped.parse::<i64>()?;
             self.get_movie_by_tmdb_id(tmdb_id, true).await
-        } else if id.starts_with("tv:") {
-            let tmdb_id = id["tv:".len()..].parse::<i64>()?;
+        } else if let Some(stripped) = id.strip_prefix("tv:") {
+            let tmdb_id = stripped.parse::<i64>()?;
             self.get_movie_by_tmdb_id(tmdb_id, false).await
         } else if let Ok(tmdb_id) = id.parse::<i64>() {
             self.get_movie_by_tmdb_id(tmdb_id, true).await
@@ -380,8 +380,8 @@ impl ImdbClient {
 
     pub async fn get_season(&self, tv_id: &str, season_number: u32) -> Result<Vec<Episode>> {
         let key = self.get_api_key()?;
-        let tmdb_id = if tv_id.starts_with("tv:") {
-            tv_id["tv:".len()..].parse::<i64>()?
+        let tmdb_id = if let Some(stripped) = tv_id.strip_prefix("tv:") {
+            stripped.parse::<i64>()?
         } else if tv_id.starts_with("tt") {
             let find_url = format!(
                 "https://api.themoviedb.org/3/find/{}?api_key={}&external_source=imdb_id",
@@ -435,8 +435,8 @@ impl ImdbClient {
 
     pub async fn get_episode_imdb_id(&self, tv_id: &str, season: u32, episode: u32) -> Result<String> {
         let key = self.get_api_key()?;
-        let tmdb_id = if tv_id.starts_with("tv:") {
-            tv_id["tv:".len()..].parse::<i64>()?
+        let tmdb_id = if let Some(stripped) = tv_id.strip_prefix("tv:") {
+            stripped.parse::<i64>()?
         } else if tv_id.starts_with("tt") {
             let find_url = format!(
                 "https://api.themoviedb.org/3/find/{}?api_key={}&external_source=imdb_id",
@@ -473,13 +473,11 @@ impl ImdbClient {
 fn format_number(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::new();
-    let mut count = 0;
-    for c in s.chars().rev() {
-        if count > 0 && count % 3 == 0 {
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
             result.push(',');
         }
         result.push(c);
-        count += 1;
     }
     result.chars().rev().collect()
 }

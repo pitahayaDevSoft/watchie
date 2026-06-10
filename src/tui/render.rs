@@ -392,7 +392,7 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
                     ),
                 ]))
             } else {
-                let title_color = if abs_i % 2 == 0 { C_TEXT } else { Color::Rgb(200, 200, 215) };
+                let title_color = if abs_i.is_multiple_of(2) { C_TEXT } else { Color::Rgb(200, 200, 215) };
                 ListItem::new(Line::from(vec![
                     Span::styled(num_str, Style::default().fg(C_MUTED)),
                     Span::styled(format!("{:<45}", title), Style::default().fg(title_color)),
