@@ -1,0 +1,86 @@
+[package]
+name = "watchie"
+version = "0.1.0"
+edition = "2021"
+authors = ["watchie contributors"]
+description = "A TUI/CLI browser for IMDB catalogs with streaming and download support via playimdb.com"
+license = "MIT"
+repository = "https://github.com/user/watchie"
+keywords = ["tui", "imdb", "movies", "streaming", "cli"]
+categories = ["command-line-utilities", "multimedia"]
+
+[[bin]]
+name = "watchie"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive", "env"] }
+
+# TUI
+ratatui = { version = "0.28", features = ["all-widgets"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["blocking", "json", "gzip", "cookies", "stream"] }
+
+# HTML parsing / scraping
+scraper = "0.21"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Configuration
+dirs = "5"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# String utilities
+unicode-width = "0.1"
+fuzzy-matcher = "0.3"
+
+# Process / shell
+open = "5"
+which = "6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async channels/streams
+tokio-stream = "0.1"
+futures = "0.3"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# URL handling
+url = "2"
+
+# Progress & display
+indicatif = "0.17"
+
+# Regex
+regex = "1"
+
+# Base64 (for Kitty image protocol)
+base64 = "0.22"
+
+# Image processing (for Kitty previews)
+image = { version = "0.25", features = ["jpeg", "png", "webp"] }
+
+# URL encoding
+urlencoding = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
