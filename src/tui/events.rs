@@ -606,7 +606,13 @@ async fn execute_stream_action(
             let url = info.qualities[qi].url.clone();
             let config = app.config.clone();
             let referer_clone = referer.clone();
+            let is_embed = info.qualities[qi].format == "html" || url.contains("/embed/") || url.contains("/iframe");
+
             if play_mode {
+                if is_embed {
+                    app.set_status("⚠️ Embedded player cannot play in MPV/VLC. Press 'o' to open in browser.", StatusStyle::Error);
+                    return Ok(());
+                }
                 let cmd_str = player::build_command_string(&config, &url, referer.as_deref());
                 app.set_status(
                     format!("▶️  Launching: {}…", cmd_str),
@@ -617,6 +623,10 @@ async fn execute_stream_action(
                 });
             } else {
                 // Download
+                if is_embed {
+                    app.set_status("⚠️ Embedded players cannot be downloaded. Press 'o' to open in browser.", StatusStyle::Error);
+                    return Ok(());
+                }
                 let filename = format!(
                     "{}.{}",
                     info.title.replace(' ', "."),

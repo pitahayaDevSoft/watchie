@@ -17,6 +17,7 @@ Format: [keepachangelog.com](https://keepachangelog.com) · Versioning: [semver.
 - Dynamic injection of configured User-Agent into player arguments (`--user-agent` for `mpv`, `--http-user-agent` for `vlc`) to bypass HTTP 403 Cloudflare hotlink protection.
 - Configuration-based User-Agent injection for the file downloader rather than using a hardcoded browser agent string.
 - Dynamic, context-aware TUI status bar (footer) displaying screen-specific keybind helpers, selection indexes (e.g. current item/total), active player command, and abbreviated download directory path.
+- Graceful detection and error warnings for embedded iframe stream players in both CLI and TUI modes, preventing 404/demux failures in MPV/VLC by prompting the user (or automatically launching in CLI mode) to open the standalone web player in the browser instead.
 
 ---
 

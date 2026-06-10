@@ -194,6 +194,13 @@ pub async fn download_or_play(
     let referer = crate::playimdb::extract_origin(&stream_info.stream_url);
     if play_mode {
         if let Some(q) = stream_info.qualities.first() {
+            let is_embed = q.format == "html" || q.url.contains("/embed/") || q.url.contains("/iframe");
+            if is_embed {
+                println!("\n⚠️  This title only provides an embedded web player and cannot be played directly in MPV/VLC.");
+                println!("🌐 Opening the standalone stream in your browser: {}", stream_info.stream_url);
+                play_client.open_in_browser(&stream_info.stream_url).await?;
+                return Ok(());
+            }
             let cmd_str = player::build_command_string(config, &q.url, referer.as_deref());
             println!("\n▶️  Opening with: {}…", cmd_str);
             player::play(&q.url, referer.as_deref(), config).await?;
@@ -210,6 +217,13 @@ pub async fn download_or_play(
         // Download mode
         config.ensure_download_dir()?;
         if let Some(q) = stream_info.qualities.first() {
+            let is_embed = q.format == "html" || q.url.contains("/embed/") || q.url.contains("/iframe");
+            if is_embed {
+                println!("\n⚠️  Embedded web players cannot be downloaded.");
+                println!("🌐 Opening the standalone stream in your browser instead: {}", stream_info.stream_url);
+                play_client.open_in_browser(&stream_info.stream_url).await?;
+                return Ok(());
+            }
             let filename = format!(
                 "{}.{}",
                 stream_info.title.replace(' ', "."),
