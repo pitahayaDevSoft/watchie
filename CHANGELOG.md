@@ -16,6 +16,7 @@ Format: [keepachangelog.com](https://keepachangelog.com) · Versioning: [semver.
 - TUI keyboard shortcut (`o` key) in `MovieDetail`, `StreamSelect`, and `EpisodeList` screens to open the current movie or episode standalone playimdb URL in the default web browser as an escape hatch.
 - Dynamic injection of configured User-Agent into player arguments (`--user-agent` for `mpv`, `--http-user-agent` for `vlc`) to bypass HTTP 403 Cloudflare hotlink protection.
 - Configuration-based User-Agent injection for the file downloader rather than using a hardcoded browser agent string.
+- Dynamic, context-aware TUI status bar (footer) displaying screen-specific keybind helpers, selection indexes (e.g. current item/total), active player command, and abbreviated download directory path.
 
 ---
 

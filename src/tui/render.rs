@@ -963,12 +963,48 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    // Dynamic constraints based on terminal width
+    let constraints = if area.width >= 120 {
+        vec![
+            Constraint::Min(40),
+            Constraint::Length(30),
+            Constraint::Length(45),
+        ]
+    } else if area.width >= 80 {
+        vec![
+            Constraint::Min(30),
+            Constraint::Length(22),
+            Constraint::Length(30),
+        ]
+    } else {
+        vec![
+            Constraint::Min(20),
+            Constraint::Length(0),
+            Constraint::Length(25),
+        ]
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(30)])
+        .constraints(constraints)
         .split(inner);
 
-    // Status message
+    // 1. Dynamic context-sensitive key bindings
+    let help_keys = match app.screen {
+        Screen::Home => "Enter: Browse • /: Search • c: Categories • q: Quit",
+        Screen::CategoryList => "Enter: Select • Esc/b: Back • q: Quit",
+        Screen::MovieList => "Enter: Detail • p: Play • d: Download • c: Categories • /: Search • q: Quit",
+        Screen::MovieDetail => "w: Streams • Esc/b: Back • i: Image Toggle • o: Browser • q: Quit",
+        Screen::SeasonList => "Enter: Episodes • Esc/b: Back • q: Quit",
+        Screen::EpisodeList => "Enter: Streams • p: Play • d: Download • Esc/b: Back • o: Browser • q: Quit",
+        Screen::StreamSelect => "Enter: Play • D: Download • Esc/b: Back • o: Browser • q: Quit",
+        Screen::DownloadProgress => "Esc/b: Back • q: Quit",
+        Screen::Search => "Type query • Enter: Search • Esc: Cancel",
+        Screen::Help => "Esc/b: Back • q: Quit",
+        Screen::Setup => "Type TMDB Key • Enter: Confirm • q: Quit",
+    };
+
+    // Status message overrides help keys if active
     let (msg, style) = if let Some(s) = &app.status_msg {
         let color = match app.status_style {
             StatusStyle::Info => C_ACCENT2,
@@ -977,7 +1013,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         };
         (s.as_str(), Style::default().fg(color))
     } else {
-        ("q=quit  ?=help  /=search  c=categories", Style::default().fg(C_MUTED))
+        (help_keys, Style::default().fg(C_MUTED))
     };
 
     f.render_widget(
@@ -985,22 +1021,104 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         chunks[0],
     );
 
-    // Loading indicator
-    let loading_txt = match &app.loading {
-        LoadingState::Loading(_) => Span::styled("⟳ Loading…", Style::default().fg(C_ACCENT)),
-        LoadingState::Error(msg) => Span::styled(format!("✕ Error: {}", msg), Style::default().fg(C_RED)),
-        LoadingState::Idle => Span::styled(
-            format!(
-                "{}{}",
-                if app.config.ui.kitty_images { "🖼️ " } else { "" },
-                format!("v{}", env!("CARGO_PKG_VERSION"))
-            ),
-            Style::default().fg(C_MUTED),
-        ),
+    // 2. Middle Section (Context/Selection Status) - hidden on very narrow screens
+    if chunks.len() > 2 && chunks[1].width > 0 {
+        let context_txt = match app.screen {
+            Screen::MovieList => {
+                let total = app.movie_list.len();
+                let current = if total > 0 { app.selected_movie + 1 } else { 0 };
+                format!("🎬 {}: {}/{}", app.list_title, current, total)
+            }
+            Screen::MovieDetail => {
+                if let Some(ref m) = app.current_movie {
+                    format!("🎥 Detail: {}", m.title)
+                } else {
+                    "🎥 Movie Detail".to_string()
+                }
+            }
+            Screen::SeasonList => {
+                let total = app.season_list.len();
+                let current = if total > 0 { app.selected_season + 1 } else { 0 };
+                format!("📺 Seasons: {}/{}", current, total)
+            }
+            Screen::EpisodeList => {
+                let total = app.episode_list.len();
+                let current = if total > 0 { app.selected_episode + 1 } else { 0 };
+                format!("📺 Episodes: {}/{}", current, total)
+            }
+            Screen::StreamSelect => {
+                let total = app.stream_info.as_ref().map(|s| s.qualities.len() + s.torrent_links.len()).unwrap_or(0);
+                let current = if total > 0 { app.selected_quality + 1 } else { 0 };
+                format!("🌐 Streams: {}/{}", current, total)
+            }
+            Screen::CategoryList => {
+                let total = app.categories.len();
+                let current = if total > 0 { app.selected_category + 1 } else { 0 };
+                format!("📁 Categories: {}/{}", current, total)
+            }
+            Screen::DownloadProgress => {
+                if let Some(ref dp) = app.download_progress {
+                    format!("⬇️ {}", dp.filename)
+                } else {
+                    "⬇️ Downloading".to_string()
+                }
+            }
+            Screen::Home => "🏠 Home".to_string(),
+            Screen::Search => format!("🔍 Search: \"{}\"", app.search_query),
+            Screen::Setup => "⚙️ Setup".to_string(),
+            Screen::Help => "❓ Help".to_string(),
+        };
+
+        f.render_widget(
+            Paragraph::new(Span::styled(context_txt, Style::default().fg(C_ACCENT2))).alignment(Alignment::Center),
+            chunks[1],
+        );
+    }
+
+    // 3. Right Section (Config & System Info)
+    let right_idx = if chunks.len() > 2 { 2 } else { 1 };
+    
+    let player = &app.config.player.command;
+    let download_dir_str = app.config.download_dir.to_string_lossy();
+    let display_dir = if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if download_dir_str.starts_with(&*home_str) {
+            download_dir_str.replacen(&*home_str, "~", 1)
+        } else {
+            download_dir_str.into_owned()
+        }
+    } else {
+        download_dir_str.into_owned()
     };
+
+    let config_status = if chunks[right_idx].width >= 35 {
+        format!("🚀 {} • 📁 {}  ", player, display_dir)
+    } else {
+        format!("🚀 {}  ", player)
+    };
+
+    let mut right_spans = vec![
+        Span::styled(config_status, Style::default().fg(C_MUTED)),
+    ];
+
+    match &app.loading {
+        LoadingState::Loading(_) => {
+            right_spans.push(Span::styled("⟳ Loading…", Style::default().fg(C_ACCENT).bold()));
+        }
+        LoadingState::Error(msg) => {
+            right_spans.push(Span::styled(format!("✕ Error: {}", msg), Style::default().fg(C_RED).bold()));
+        }
+        LoadingState::Idle => {
+            if app.config.ui.kitty_images && chunks[right_idx].width >= 40 {
+                right_spans.push(Span::styled("🖼️  ", Style::default().fg(C_MUTED)));
+            }
+            right_spans.push(Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(C_MUTED)));
+        }
+    }
+
     f.render_widget(
-        Paragraph::new(loading_txt).alignment(Alignment::Right),
-        chunks[1],
+        Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
+        chunks[right_idx],
     );
 }
 
