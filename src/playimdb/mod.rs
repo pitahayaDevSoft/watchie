@@ -275,8 +275,18 @@ impl PlayImdbClient {
         Ok(results)
     }
 
-    /// Open the stream URL in the system's default browser
+    /// Open the stream URL in a standalone browser window (app mode) or default browser fallback.
     pub async fn open_in_browser(&self, url: &str) -> Result<()> {
+        let browsers = ["chromium", "google-chrome", "brave", "microsoft-edge", "chromium-browser"];
+        for b in &browsers {
+            if which::which(b).is_ok() {
+                let mut cmd = std::process::Command::new(b);
+                cmd.arg(format!("--app={}", url));
+                if cmd.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+        }
         open::that(url)?;
         Ok(())
     }

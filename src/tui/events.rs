@@ -713,7 +713,11 @@ async fn open_current_in_browser(app: &mut App) {
     if let Some(url) = target_url {
         app.set_status(format!("🌐 Opening browser: {}…", url), StatusStyle::Info);
         tokio::spawn(async move {
-            let _ = open::that(&url);
+            if let Ok(client) = PlayImdbClient::new() {
+                let _ = client.open_in_browser(&url).await;
+            } else {
+                let _ = open::that(&url);
+            }
         });
     }
 }
