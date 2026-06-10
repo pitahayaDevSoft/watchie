@@ -24,6 +24,7 @@ pub enum AppMsg {
     DownloadDone(String),
     Error(String),
     EpisodesLoaded(Vec<crate::imdb::Episode>),
+    PlayImdbStatusUpdated(super::app::PlayImdbStatus),
 }
 
 pub async fn run_event_loop(
@@ -77,7 +78,7 @@ pub async fn run_event_loop(
 
         // Handle async messages (non-blocking)
         while let Ok(msg) = rx.try_recv() {
-            handle_msg(app, msg);
+            handle_msg(app, msg, tx.clone());
         }
 
         // Poll for keyboard events (16ms = ~60fps)
@@ -91,7 +92,7 @@ pub async fn run_event_loop(
     }
 }
 
-fn handle_msg(app: &mut App, msg: AppMsg) {
+fn handle_msg(app: &mut App, msg: AppMsg, tx: mpsc::UnboundedSender<AppMsg>) {
     match msg {
         AppMsg::MovieListLoaded(list) => {
             app.movie_list = list;
@@ -104,6 +105,47 @@ fn handle_msg(app: &mut App, msg: AppMsg) {
             app.detail_scroll = 0;
             app.loading = LoadingState::Idle;
             app.screen = Screen::MovieDetail;
+            app.playimdb_status = super::app::PlayImdbStatus::Checking;
+
+            // Spawn background task to check playimdb availability
+            if let Some(ref m) = app.current_movie {
+                let id = m.id.clone();
+                let title = m.title.clone();
+                let year = m.year;
+                let tx2 = tx.clone();
+                tokio::spawn(async move {
+                    match PlayImdbClient::new() {
+                        Ok(client) => {
+                            let mut found = false;
+                            if let Ok(info) = client.get_stream_info(&id).await {
+                                if !info.qualities.is_empty() || !info.torrent_links.is_empty() || info.direct_url.is_some() {
+                                    found = true;
+                                }
+                            }
+                            if !found {
+                                if let Ok(search_results) = client.search_by_title(&title, year).await {
+                                    if let Some(first_match) = search_results.first() {
+                                        if let Ok(info) = client.get_stream_info(&first_match.stream_url).await {
+                                            if !info.qualities.is_empty() || !info.torrent_links.is_empty() || info.direct_url.is_some() {
+                                                found = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            let status = if found {
+                                super::app::PlayImdbStatus::Available
+                            } else {
+                                super::app::PlayImdbStatus::NotAvailable
+                            };
+                            let _ = tx2.send(AppMsg::PlayImdbStatusUpdated(status));
+                        }
+                        Err(e) => {
+                            let _ = tx2.send(AppMsg::PlayImdbStatusUpdated(super::app::PlayImdbStatus::Error(e.to_string())));
+                        }
+                    }
+                });
+            }
         }
         AppMsg::EpisodesLoaded(episodes) => {
             app.episode_list = episodes;
@@ -119,6 +161,9 @@ fn handle_msg(app: &mut App, msg: AppMsg) {
         }
         AppMsg::PosterLoaded(id, bytes) => {
             app.poster_cache.insert(id, bytes);
+        }
+        AppMsg::PlayImdbStatusUpdated(status) => {
+            app.playimdb_status = status;
         }
         AppMsg::SearchDone(results) => {
             app.search_results = results;

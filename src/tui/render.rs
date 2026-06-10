@@ -497,11 +497,33 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         .votes
         .map(|v| format!(" ({} votes)", fmt_votes(v)))
         .unwrap_or_default();
-    lines.push(Line::from(vec![
+    
+    let mut rating_line = vec![
         Span::styled("  Rating:  ", Style::default().fg(C_MUTED)),
         Span::styled(rating_str, Style::default().fg(C_ACCENT).bold()),
         Span::styled(votes_str, Style::default().fg(C_MUTED)),
-    ]));
+    ];
+
+    rating_line.push(Span::styled("    PlayIMDb: ", Style::default().fg(C_MUTED)));
+    match &app.playimdb_status {
+        super::app::PlayImdbStatus::Unknown => {
+            rating_line.push(Span::styled("❓ Unknown", Style::default().fg(C_MUTED)));
+        }
+        super::app::PlayImdbStatus::Checking => {
+            rating_line.push(Span::styled("⏳ Checking...", Style::default().fg(C_ACCENT2).bold()));
+        }
+        super::app::PlayImdbStatus::Available => {
+            rating_line.push(Span::styled("🟢 Available", Style::default().fg(C_GREEN).bold()));
+        }
+        super::app::PlayImdbStatus::NotAvailable => {
+            rating_line.push(Span::styled("🔴 Not Found", Style::default().fg(C_RED).bold()));
+        }
+        super::app::PlayImdbStatus::Error(e) => {
+            rating_line.push(Span::styled(format!("⚠️ Error ({})", e), Style::default().fg(C_RED)));
+        }
+    }
+    
+    lines.push(Line::from(rating_line));
 
     // Type + runtime
     let runtime_str = movie

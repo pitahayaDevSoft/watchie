@@ -35,11 +35,21 @@ pub enum LoadingState {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlayImdbStatus {
+    Unknown,
+    Checking,
+    Available,
+    NotAvailable,
+    Error(String),
+}
+
 pub struct App {
     pub config: Config,
     pub screen: Screen,
     pub input_mode: InputMode,
     pub loading: LoadingState,
+    pub playimdb_status: PlayImdbStatus,
 
     // Navigation
     pub selected_category: usize,
@@ -99,6 +109,7 @@ impl App {
             screen: Screen::Home,
             input_mode: InputMode::Normal,
             loading: LoadingState::Idle,
+            playimdb_status: PlayImdbStatus::Unknown,
             selected_category: 0,
             selected_movie: 0,
             scroll_offset: 0,
