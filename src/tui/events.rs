@@ -316,6 +316,13 @@ async fn handle_normal_key(
             app.screen = Screen::Help;
         }
 
+        // Open standalone stream in browser
+        KeyCode::Char('o') => {
+            if app.screen == Screen::MovieDetail || app.screen == Screen::StreamSelect || app.screen == Screen::EpisodeList {
+                open_current_in_browser(app).await;
+            }
+        }
+
         _ => {}
     }
     Ok(())
@@ -629,7 +636,7 @@ async fn execute_stream_action(
                 let referer_dl = referer_clone.clone();
                 tokio::spawn(async move {
                     config.ensure_download_dir().ok();
-                    match Downloader::new() {
+                    match Downloader::new(&config) {
                         Ok(dl) => {
                             use std::sync::{Arc, Mutex};
                             use std::time::Instant;
@@ -671,4 +678,32 @@ async fn execute_stream_action(
         }
     }
     Ok(())
+}
+
+async fn open_current_in_browser(app: &mut App) {
+    let mut target_url = None;
+    let base_url = if let Some(ref url) = app.config.api.playimdb_url {
+        url.trim_end_matches('/').to_string()
+    } else {
+        "https://playimdb.com".to_string()
+    };
+
+    if app.screen == Screen::StreamSelect {
+        if let Some(ref info) = app.stream_info {
+            target_url = Some(info.stream_url.clone());
+        }
+    } else if app.screen == Screen::EpisodeList {
+        if let (Some(movie), Some(episode)) = (&app.current_movie, app.episode_list.get(app.selected_episode)) {
+            target_url = Some(format!("{}/title/{}/{}/{}", base_url, movie.id, episode.season_number, episode.episode_number));
+        }
+    } else if let Some(ref movie) = app.current_movie {
+        target_url = Some(format!("{}/title/{}", base_url, movie.id));
+    }
+
+    if let Some(url) = target_url {
+        app.set_status(format!("🌐 Opening browser: {}…", url), StatusStyle::Info);
+        tokio::spawn(async move {
+            let _ = open::that(&url);
+        });
+    }
 }

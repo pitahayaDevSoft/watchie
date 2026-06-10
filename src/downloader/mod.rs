@@ -11,9 +11,9 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn new() -> Result<Self> {
+    pub fn new(config: &Config) -> Result<Self> {
         let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
+            .user_agent(&config.network.user_agent)
             .timeout(std::time::Duration::from_secs(0)) // no timeout for downloads
             .build()?;
         Ok(Self { client })

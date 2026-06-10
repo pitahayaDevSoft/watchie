@@ -897,6 +897,7 @@ fn draw_help(f: &mut Frame, app: &App, area: Rect) {
             ("w", "Fetch stream info (from detail)"),
             ("Enter (stream)", "Play stream in media player"),
             ("D (stream)", "Download stream"),
+            ("o", "Open standalone stream in browser"),
         ]),
         ("General", vec![
             ("?  /  F1", "Show this help"),

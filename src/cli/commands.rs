@@ -222,7 +222,7 @@ pub async fn download_or_play(
             };
 
             // Probe size first
-            let downloader = Downloader::new()?;
+            let downloader = Downloader::new(config)?;
             if let Ok(Some(size)) = downloader.probe_size(&q.url, referer.as_deref()).await {
                 println!("\n📦 File size: {}", format_size(size));
             }
