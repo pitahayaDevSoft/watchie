@@ -1,78 +1,225 @@
 # watchie
 
-> Browse TMDB catalog, stream and download titles — all from your terminal.
+> Terminal-native TUI/CLI client for browsing, streaming, and downloading movies and series via TMDB and playimdb.com.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](VERSION)
 
 ## Overview
 
-`watchie` is a fast, keyboard-driven terminal application (TUI + CLI) written in Rust that allows you to browse, search, and view movie or series details via the TMDB API, and stream or download video files via playimdb.com integration.
+`watchie` is a keyboard-driven terminal application written in Rust that provides a full movie and series catalog browser backed by the [TMDB API](https://www.themoviedb.org/), with integrated streaming and download capabilities via [playimdb.com](https://playimdb.com).
 
-### Features
-- **TUI Browser**: Navigate categories (Popular, Top Rated, Genre filters) and search results with keybindings.
-- **Rich Movie Details**: Display ratings, plot overview, cast, director, budget, keywords, and spoken languages.
-- **Media Player Integration**: Auto-detects and opens streams in mpv, vlc, or custom player commands.
-- **Download Manager**: Background asynchronous downloading with progress bars and pre-download size previews.
-- **Kitty Previews**: Renders high-quality inline poster graphics natively when running in Kitty terminal.
+It runs in two modes:
+- **TUI** (default) — interactive full-screen browser with category navigation, search, detail view, stream selection, and download progress display.
+- **CLI** — scriptable subcommands for searching, fetching info, playing, and downloading titles directly from the shell.
+
+When running inside [Kitty terminal](https://sw.kovidgoyal.net/kitty/), movie poster images are rendered inline using the Kitty Graphics Protocol.
 
 ## Installation
 
+**Requirements:** Rust stable toolchain (edition 2021), Cargo.
+
 ```bash
-# Clone the repository
-git clone https://github.com/user/watchie
+# Clone
+git clone https://github.com/pitahayaDevSoft/watchie
 cd watchie
 
-# Build and install to path
+# Build optimized release binary
+cargo build --release
+
+# Install to $PATH
 cargo install --path .
+```
+
+## Configuration
+
+watchie auto-creates its config file at `~/.config/watchie/config.toml` on first run.
+
+### API Key (Required)
+
+watchie uses the TMDB API for all catalog data. A **free** API key is required:
+
+1. Create a free account at [themoviedb.org](https://www.themoviedb.org/)
+2. Go to **Account Settings → API** and generate a key (choose "Developer")
+3. Configure it via one of these methods:
+
+```bash
+# Option A — CLI command (persists to config.toml)
+watchie config set-tmdb-key YOUR_KEY_HERE
+
+# Option B — Environment variable (session only)
+export TMDB_API_KEY=YOUR_KEY_HERE
+
+# Option C — Edit config directly
+$EDITOR ~/.config/watchie/config.toml
+```
+
+### Full config.toml reference
+
+```toml
+download_dir = "/home/user/Downloads/watchie"
+
+[player]
+command = "mpv"        # auto-detected: mpv, vlc, mplayer, celluloid, totem, smplayer
+extra_args = []        # additional flags passed to the player
+
+[ui]
+page_size = 20         # items visible per page in lists
+kitty_images = false   # auto-detected from $TERM / $KITTY_WINDOW_ID
+theme = "dark"
+
+[network]
+timeout_secs = 15      # HTTP request timeout (0 = unlimited for downloads)
+max_retries = 3
+user_agent = "Mozilla/5.0 ..."
+
+[api]
+tmdb_key = ""          # set via `watchie config set-tmdb-key`
 ```
 
 ## Usage
 
-### Configuration Setup
-`watchie` uses the TMDB API for catalog browsing and search. A free API key is required:
-1. Register at [themoviedb.org](https://www.themoviedb.org/) and generate a free API key.
-2. Save it using the config command:
-   ```bash
-   watchie config set-tmdb-key <YOUR_KEY>
-   ```
-
 ### TUI Mode
-Simply run the binary without arguments:
+
+Run with no arguments to open the interactive browser:
+
 ```bash
 watchie
 ```
-- Use `j` / `k` (or arrows) to move, `Enter` to select, `Esc` / `b` to go back, `/` to search, and `q` to quit.
+
+#### Key Bindings
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `j` / `↓` | Any list | Move selection down |
+| `k` / `↑` | Any list | Move selection up |
+| `PageDown` | Any list | Jump one page down |
+| `PageUp` | Any list | Jump one page up |
+| `g` / `Home` | Any list | Jump to first item |
+| `G` / `End` | Any list | Jump to last item |
+| `Enter` | Category list | Open category movie list |
+| `Enter` | Movie list | Open movie detail view |
+| `Enter` | Movie detail | Open stream source selection |
+| `Enter` | Stream select | Play selected stream/quality |
+| `Esc` / `b` | Any screen | Go back |
+| `/` or `s` | Any screen | Open search input |
+| `c` | Any screen | Browse category list |
+| `r` | Movie list | Reload current category |
+| `p` | Movie list/detail | Fetch streams and play immediately |
+| `d` | Movie list/detail | Fetch streams and download |
+| `w` | Movie detail | Load stream sources |
+| `i` | Any screen | Toggle Kitty inline image preview |
+| `?` / `F1` | Any screen | Open help screen |
+| `q` | Any screen | Quit |
+| `Ctrl+C` | Any screen | Quit |
+
+#### Screens
+
+- **Home** — Category panel + quick stats sidebar
+- **Category List** — All 20 browsable categories
+- **Movie List** — Scrollable list with title, year, rating, type
+- **Movie Detail** — Full metadata: rating, votes, runtime, genres, directors, cast, plot, tagline, budget, gross, keywords, languages, countries
+- **Stream Select** — Lists parsed quality options and magnet/torrent links from playimdb.com
+- **Download Progress** — Live progress bar with speed and size display
+- **Search** — Full-text search across movies and TV shows
+- **Help** — All keybindings reference
+- **Setup** — Shown on first run without API key; guides through TMDB registration
 
 ### CLI Mode
-For scripting or fast execution:
+
+#### Search
+
 ```bash
-# Search for a title
-watchie search "Inception" --limit 5
+watchie search "Blade Runner" --limit 10
+# Output: table with TMDB internal ID, title, year, rating, content type
+```
 
-# View full details of a title (handles IMDb tt-ID or TMDB formats)
-watchie info tt1375666
+#### Info
 
-# Stream a title directly in your media player
-watchie play tt1375666
+```bash
+# By IMDb tt-ID
+watchie info tt0083658
 
-# Download a title
-watchie download "Dune" --output ~/Videos/
+# By title (resolves via search)
+watchie info "Blade Runner"
+```
+
+Displays: title, year, rating, metascore, type, runtime, genres, director, cast, languages, countries, release date, full plot, keywords, IMDb URL.
+
+#### Play
+
+```bash
+# Stream directly into media player
+watchie play tt0816692
+watchie play "Interstellar"
+```
+
+Auto-resolves IMDb ID → finds streams on playimdb.com → opens first quality in configured player.
+
+#### Download
+
+```bash
+# Download to configured download directory
+watchie download tt0816692
+
+# Custom output directory
+watchie dl "Dune" --output ~/Videos/
+
+# Stream instead of download
+watchie download tt0816692 --player
+```
+
+Shows file size preview (via HTTP HEAD) before downloading. Progress printed to stdout.
+
+#### Browse Top Charts
+
+```bash
+watchie top                         # Popular Movies (default)
+watchie top --category top          # Top Rated Movies
+watchie top --category toptv        # Top Rated TV
+watchie top --category action       # Action genre
+watchie top --category horror --limit 30
+```
+
+#### Config Management
+
+```bash
+watchie config show                          # Print current config as TOML
+watchie config set-tmdb-key <KEY>           # Save TMDB API key
+watchie config set-download-dir ~/Movies    # Set download directory
+watchie config set-player vlc               # Set media player
+watchie config path                         # Print config file path
 ```
 
 ## Architecture
 
-`watchie` is built in Rust using `ratatui` for TUI rendering and `tokio` for async networking.
-- Metadata is resolved using the **TMDB API** (and mapped to IMDb `tt` IDs).
-- Stream URLs are parsed from **playimdb.com** and fed to local player sub-processes.
-- Terminal graphics use the **Kitty Graphics Protocol** via absolute terminal cell writes.
+See [docs/wiki/architecture.md](docs/wiki/architecture.md) for the full system design and ADRs.
 
-Detailed architecture and design logs are recorded in [docs/wiki/architecture.md](docs/wiki/architecture.md).
+```
+src/
+├── main.rs              — Entrypoint: dispatches TUI or CLI mode
+├── cli/
+│   ├── mod.rs           — Clap subcommand definitions
+│   └── commands.rs      — CLI command implementations
+├── config/mod.rs        — TOML config model, load/save, auto-detection
+├── imdb/mod.rs          — TMDB API client (search, category, detail, poster)
+├── playimdb/mod.rs      — playimdb.com scraper (stream info, torrent links)
+├── player/mod.rs        — Media player subprocess launcher
+├── downloader/mod.rs    — Async HTTP downloader with progress callbacks
+├── kitty/mod.rs         — Kitty Graphics Protocol renderer
+└── tui/
+    ├── mod.rs           — Terminal setup/teardown
+    ├── app.rs           — Application state machine
+    ├── events.rs        — Event loop, keyboard handling, async task dispatch
+    ├── render.rs        — All screen drawing functions (ratatui)
+    └── widgets.rs       — Custom widget helpers
+```
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for full change history.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
