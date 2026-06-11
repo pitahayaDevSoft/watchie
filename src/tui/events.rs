@@ -184,6 +184,9 @@ fn handle_msg(app: &mut App, msg: AppMsg, tx: mpsc::UnboundedSender<AppMsg>) {
                 format!("✅ Downloaded: {}", path),
                 StatusStyle::Success,
             );
+            if crate::kitty::is_kitty() {
+                let _ = crate::kitty::notify("Watchie", &format!("Download finished: {}", path));
+            }
             app.download_progress = None;
             app.screen = Screen::MovieDetail;
         }
@@ -200,6 +203,11 @@ async fn handle_key(
     key: KeyEvent,
     tx: mpsc::UnboundedSender<AppMsg>,
 ) -> Result<bool> {
+    // Only process Press and Repeat events
+    if key.kind == event::KeyEventKind::Release {
+        return Ok(false);
+    }
+
     // Global quit
     if key.code == KeyCode::Char('q') && app.input_mode == InputMode::Normal {
         return Ok(true);

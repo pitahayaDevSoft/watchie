@@ -60,7 +60,7 @@ impl Default for Config {
             ui: UiConfig {
                 page_size: 20,
                 kitty_images: crate::kitty::is_kitty(),
-                theme: "dark".to_string(),
+                theme: "terminal".to_string(),
             },
             network: NetworkConfig {
                 timeout_secs: 15,

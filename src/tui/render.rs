@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState,
@@ -10,30 +10,18 @@ use ratatui::{
 };
 
 use super::app::{App, InputMode, LoadingState, Screen, StatusStyle};
+use super::theme::Theme;
 use crate::playimdb::format_size;
-
-// ─── Color palette ────────────────────────────────────────────────────────────
-
-const C_BG: Color = Color::Rgb(10, 10, 18);
-const C_SURFACE: Color = Color::Rgb(20, 20, 32);
-const C_SURFACE2: Color = Color::Rgb(28, 28, 42);
-const C_BORDER: Color = Color::Rgb(48, 48, 72);
-const C_ACCENT: Color = Color::Rgb(255, 177, 0); // amber
-const C_ACCENT2: Color = Color::Rgb(80, 200, 255); // sky blue
-const C_TEXT: Color = Color::Rgb(220, 220, 230);
-const C_MUTED: Color = Color::Rgb(120, 120, 150);
-const C_GREEN: Color = Color::Rgb(100, 220, 100);
-const C_RED: Color = Color::Rgb(255, 90, 90);
-const C_PURPLE: Color = Color::Rgb(180, 120, 255);
 
 // ─── Main draw ────────────────────────────────────────────────────────────────
 
 pub fn draw(f: &mut Frame, app: &App) {
+    let theme = Theme::from_name(&app.config.ui.theme);
     let area = f.area();
 
     // Background
     f.render_widget(
-        Block::default().style(Style::default().bg(C_BG)),
+        Block::default().style(Style::default().bg(theme.bg)),
         area,
     );
 
@@ -47,24 +35,24 @@ pub fn draw(f: &mut Frame, app: &App) {
         ])
         .split(area);
 
-    draw_header(f, app, chunks[0]);
-    draw_body(f, app, chunks[1]);
-    draw_footer(f, app, chunks[2]);
+    draw_header(f, app, chunks[0], &theme);
+    draw_body(f, app, chunks[1], &theme);
+    draw_footer(f, app, chunks[2], &theme);
 
     // Loading overlay
     if let LoadingState::Loading(msg) = &app.loading {
-        draw_loading_overlay(f, area, msg);
+        draw_loading_overlay(f, area, msg, &theme);
     }
 }
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+fn draw_header(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -102,12 +90,16 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         Screen::Setup => " Setup Required".to_string(),
     };
 
+    let is_kitty = crate::kitty::is_kitty();
+    let logo_text = if is_kitty { "󰟖 WATCHIE" } else { "🎬 WATCHIE" };
+    let sep_text = if is_kitty { "  󰁔  " } else { "  ›  " };
+
     let logo = Span::styled(
-        "🎬 WATCHIE",
-        Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
+        logo_text,
+        Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
     );
-    let sep = Span::styled("  ›  ", Style::default().fg(C_MUTED));
-    let breadcrumb_span = Span::styled(breadcrumb, Style::default().fg(C_TEXT));
+    let sep = Span::styled(sep_text, Style::default().fg(theme.muted));
+    let breadcrumb_span = Span::styled(breadcrumb, Style::default().fg(theme.text));
 
     f.render_widget(
         Paragraph::new(Line::from(vec![logo, sep, breadcrumb_span]))
@@ -117,12 +109,15 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 
     // Search input or mode hint
     let hint = if app.input_mode == InputMode::Searching {
+        let cursor = if is_kitty { "󰇄" } else { "█" };
         Span::styled(
-            format!(" / {}█", app.search_query),
-            Style::default().fg(C_ACCENT2).add_modifier(Modifier::BOLD),
+            format!(" / {}{}", app.search_query, cursor),
+            Style::default().fg(theme.accent2).add_modifier(Modifier::BOLD),
         )
     } else {
-        Span::styled(" / to search  ? help", Style::default().fg(C_MUTED))
+        let search_icon = if is_kitty { "󰍉" } else { "/" };
+        let help_icon = if is_kitty { "󰋖" } else { "?" };
+        Span::styled(format!(" {} to search  {} help", search_icon, help_icon), Style::default().fg(theme.muted))
     };
     f.render_widget(
         Paragraph::new(Line::from(hint)).alignment(Alignment::Right),
@@ -132,43 +127,45 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Body ─────────────────────────────────────────────────────────────────────
 
-fn draw_body(f: &mut Frame, app: &App, area: Rect) {
+fn draw_body(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     match app.screen {
-        Screen::Home => draw_home(f, app, area),
-        Screen::CategoryList => draw_category_list(f, app, area),
-        Screen::MovieList | Screen::Search => draw_movie_list(f, app, area),
-        Screen::MovieDetail => draw_movie_detail(f, app, area),
-        Screen::SeasonList => draw_season_list(f, app, area),
-        Screen::EpisodeList => draw_episode_list(f, app, area),
-        Screen::StreamSelect => draw_stream_select(f, app, area),
-        Screen::DownloadProgress => draw_download_progress(f, app, area),
-        Screen::Help => draw_help(f, app, area),
-        Screen::Setup => draw_setup(f, app, area),
+        Screen::Home => draw_home(f, app, area, theme),
+        Screen::CategoryList => draw_category_list(f, app, area, theme),
+        Screen::MovieList | Screen::Search => draw_movie_list(f, app, area, theme),
+        Screen::MovieDetail => draw_movie_detail(f, app, area, theme),
+        Screen::SeasonList => draw_season_list(f, app, area, theme),
+        Screen::EpisodeList => draw_episode_list(f, app, area, theme),
+        Screen::StreamSelect => draw_stream_select(f, app, area, theme),
+        Screen::DownloadProgress => draw_download_progress(f, app, area, theme),
+        Screen::Help => draw_help(f, app, area, theme),
+        Screen::Setup => draw_setup(f, app, area, theme),
     }
 }
 
 // ─── Home screen ──────────────────────────────────────────────────────────────
 
-fn draw_home(f: &mut Frame, app: &App, area: Rect) {
+fn draw_home(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(area);
 
     // Category list on left
-    draw_category_panel(f, app, chunks[0]);
+    draw_category_panel(f, app, chunks[0], theme);
 
     // Quick stats / art on right
-    draw_home_art(f, app, chunks[1]);
+    draw_home_art(f, app, chunks[1], theme);
 }
 
-fn draw_category_panel(f: &mut Frame, app: &App, area: Rect) {
+fn draw_category_panel(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let is_kitty = crate::kitty::is_kitty();
+    let cat_icon = if is_kitty { "󰉋" } else { "📂" };
     let block = Block::default()
-        .title(Span::styled(" 📂 Categories ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Categories ", cat_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let items: Vec<ListItem> = app
         .categories
@@ -176,11 +173,11 @@ fn draw_category_panel(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, cat)| {
             let is_selected = i == app.selected_category;
-            let prefix = if is_selected { "▶ " } else { "  " };
+            let prefix = if is_selected { if is_kitty { "󰁔 " } else { "▶ " } } else { "  " };
             let style = if is_selected {
-                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD).bg(C_SURFACE2)
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD).bg(theme.surface2)
             } else {
-                Style::default().fg(C_TEXT)
+                Style::default().fg(theme.text)
             };
             ListItem::new(format!("{}{}", prefix, cat.name)).style(style)
         })
@@ -192,67 +189,95 @@ fn draw_category_panel(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
-fn draw_home_art(f: &mut Frame, _app: &App, area: Rect) {
-    let art = vec![
-        "",
-        "  ╔══════════════════════════════╗",
-        "  ║                              ║",
-        "  ║   🎬  Browse IMDB Catalog    ║",
-        "  ║   🌐  Stream via playimdb    ║",
-        "  ║   ⬇️   Download in any dir   ║",
-        "  ║   🖼️   Kitty image previews  ║",
-        "  ║                              ║",
-        "  ╚══════════════════════════════╝",
-        "",
-        "  Quick Keys:",
-        "  Enter  → Open / Select",
-        "  /      → Search IMDB",
-        "  c      → Browse categories",
-        "  p      → Play selected",
-        "  d      → Download selected",
-        "  ?      → Help",
-        "  q      → Quit",
-    ];
+fn draw_home_art(f: &mut Frame, _app: &App, area: Rect, theme: &Theme) {
+    let is_kitty = crate::kitty::is_kitty();
+    let art = if is_kitty {
+        vec![
+            "",
+            "  ╔══════════════════════════════╗",
+            "  ║                              ║",
+            "  ║   󰟖  Browse IMDB Catalog    ║",
+            "  ║   󰖟  Stream via playimdb    ║",
+            "  ║   󰇚   Download in any dir   ║",
+            "  ║   󰋩   Kitty image previews  ║",
+            "  ║                              ║",
+            "  ╚══════════════════════════════╝",
+            "",
+            "  Quick Keys:",
+            "  󰘳  Enter  → Open / Select",
+            "  󰍉  /      → Search IMDB",
+            "  󰉋  c      → Browse categories",
+            "  󰐊  p      → Play selected",
+            "  󰇚  d      → Download selected",
+            "  󰋖  ?      → Help",
+            "  󰈆  q      → Quit",
+        ]
+    } else {
+        vec![
+            "",
+            "  ╔══════════════════════════════╗",
+            "  ║                              ║",
+            "  ║   🎬  Browse IMDB Catalog    ║",
+            "  ║   🌐  Stream via playimdb    ║",
+            "  ║   ⬇️   Download in any dir   ║",
+            "  ║   🖼️   Kitty image previews  ║",
+            "  ║                              ║",
+            "  ╚══════════════════════════════╝",
+            "",
+            "  Quick Keys:",
+            "  Enter  → Open / Select",
+            "  /      → Search IMDB",
+            "  c      → Browse categories",
+            "  p      → Play selected",
+            "  d      → Download selected",
+            "  ?      → Help",
+            "  q      → Quit",
+        ]
+    };
 
     let lines: Vec<Line> = art
         .iter()
         .map(|l| {
-            if l.contains("🎬") || l.contains("🌐") || l.contains("⬇️") || l.contains("🖼️") {
-                Line::from(Span::styled(*l, Style::default().fg(C_ACCENT2)))
+            if l.contains("󰟖") || l.contains("󰖟") || l.contains("󰇚") || l.contains("󰋩") ||
+               l.contains("🎬") || l.contains("🌐") || l.contains("⬇️") || l.contains("🖼️") {
+                Line::from(Span::styled(*l, Style::default().fg(theme.accent2)))
             } else if l.starts_with("  Quick") {
-                Line::from(Span::styled(*l, Style::default().fg(C_ACCENT).bold()))
+                Line::from(Span::styled(*l, Style::default().fg(theme.accent).bold()))
             } else if l.contains("→") {
                 let parts: Vec<&str> = l.splitn(2, "→").collect();
                 Line::from(vec![
-                    Span::styled(parts[0], Style::default().fg(C_ACCENT).bold()),
-                    Span::styled("→", Style::default().fg(C_MUTED)),
-                    Span::styled(parts.get(1).copied().unwrap_or(""), Style::default().fg(C_TEXT)),
+                    Span::styled(parts[0], Style::default().fg(theme.accent).bold()),
+                    Span::styled("→", Style::default().fg(theme.muted)),
+                    Span::styled(parts.get(1).copied().unwrap_or(""), Style::default().fg(theme.text)),
                 ])
             } else {
-                Line::from(Span::styled(*l, Style::default().fg(C_MUTED)))
+                Line::from(Span::styled(*l, Style::default().fg(theme.muted)))
             }
         })
         .collect();
 
+    let movie_icon = if is_kitty { "󰟖" } else { "🎥" };
     let block = Block::default()
-        .title(Span::styled(" 🎥 Watchie ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Watchie ", movie_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 // ─── Category list ────────────────────────────────────────────────────────────
 
-fn draw_category_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_category_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let is_kitty = crate::kitty::is_kitty();
+    let cat_icon = if is_kitty { "󰉋" } else { "📂" };
     let block = Block::default()
-        .title(Span::styled(" 📂 Browse Categories ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Browse Categories ", cat_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let items: Vec<ListItem> = app
         .categories
@@ -262,9 +287,9 @@ fn draw_category_list(f: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.selected_category;
             let icon = category_icon(cat.id);
             let style = if is_selected {
-                Style::default().fg(C_BG).bg(C_ACCENT).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme.bg).bg(theme.accent).bold()
             } else {
-                Style::default().fg(C_TEXT)
+                Style::default().fg(theme.text)
             };
             let line = format!(" {} {} ", icon, cat.name);
             ListItem::new(line).style(style)
@@ -277,54 +302,59 @@ fn draw_category_list(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn category_icon(id: &str) -> &'static str {
+    let is_kitty = crate::kitty::is_kitty();
     match id {
-        "top" | "toptv" => "⭐",
-        "moviemeter" => "🔥",
-        "boxoffice" => "💰",
-        "comingsoon" => "📅",
-        "oscar-winners" => "🏆",
-        id if id.contains("action") => "💥",
-        id if id.contains("adventure") => "🗺️",
-        id if id.contains("animation") => "🎨",
-        id if id.contains("comedy") => "😂",
-        id if id.contains("crime") => "🔫",
-        id if id.contains("documentary") => "📹",
-        id if id.contains("drama") => "🎭",
-        id if id.contains("fantasy") => "🧙",
-        id if id.contains("horror") => "👻",
-        id if id.contains("mystery") => "🔍",
-        id if id.contains("romance") => "❤️",
-        id if id.contains("sci-fi") => "🚀",
-        id if id.contains("thriller") => "😰",
-        id if id.contains("western") => "🤠",
-        _ => "🎬",
+        "top" | "toptv" => if is_kitty { "󰓎" } else { "⭐" },
+        "moviemeter" => if is_kitty { "󰈸" } else { "🔥" },
+        "boxoffice" => if is_kitty { "󰠭" } else { "💰" },
+        "comingsoon" => if is_kitty { "󰃭" } else { "📅" },
+        "oscar-winners" => if is_kitty { "󰘔" } else { "🏆" },
+        id if id.contains("action") => if is_kitty { "󰓅" } else { "💥" },
+        id if id.contains("adventure") => if is_kitty { "󰙠" } else { "🗺️" },
+        id if id.contains("animation") => if is_kitty { "󰈄" } else { "🎨" },
+        id if id.contains("comedy") => if is_kitty { "󰅴" } else { "😂" },
+        id if id.contains("crime") => if is_kitty { "󰆠" } else { "🔫" },
+        id if id.contains("documentary") => if is_kitty { "󰈫" } else { "📹" },
+        id if id.contains("drama") => if is_kitty { "󰏤" } else { "🎭" },
+        id if id.contains("fantasy") => if is_kitty { "󰝯" } else { "🧙" },
+        id if id.contains("horror") => if is_kitty { "󰝟" } else { "👻" },
+        id if id.contains("mystery") => if is_kitty { "󰍉" } else { "🔍" },
+        id if id.contains("romance") => if is_kitty { "󰓏" } else { "❤️" },
+        id if id.contains("sci-fi") => if is_kitty { "󰈡" } else { "🚀" },
+        id if id.contains("thriller") => if is_kitty { "󰇄" } else { "😰" },
+        id if id.contains("western") => if is_kitty { "󰖑" } else { "🤠" },
+        _ => if is_kitty { "󰟖" } else { "🎬" },
     }
 }
 
 // ─── Movie list ───────────────────────────────────────────────────────────────
 
-fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_movie_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let list = app.current_list();
+    let is_kitty = crate::kitty::is_kitty();
     let title_text = if app.screen == Screen::Search {
-        format!(" 🔍 Results for \"{}\" ({}) ", app.search_query, list.len())
+        let search_icon = if is_kitty { "󰍉" } else { "🔍" };
+        format!(" {} Results for \"{}\" ({}) ", search_icon, app.search_query, list.len())
     } else {
-        format!(" 🎬 {} ({}) ", app.list_title, list.len())
+        let movie_icon = if is_kitty { "󰟖" } else { "🎬" };
+        format!(" {} {} ({}) ", movie_icon, app.list_title, list.len())
     };
 
     let block = Block::default()
-        .title(Span::styled(title_text, Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(title_text, Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     if list.is_empty() {
+        let hint = if is_kitty { "\n  󰍉 No results yet. Press 󰘳 Enter on a category or use / to search." } else { "\n  No results yet. Press Enter on a category or use / to search." };
         f.render_widget(
-            Paragraph::new("\n  No results yet. Press Enter on a category or use / to search.")
-                .style(Style::default().fg(C_MUTED))
+            Paragraph::new(hint)
+                .style(Style::default().fg(theme.muted))
                 .alignment(Alignment::Left),
             inner,
         );
@@ -339,11 +369,11 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(format!("{:<4} ", "#"), Style::default().fg(C_MUTED)),
-            Span::styled(format!("{:<45}", "Title"), Style::default().fg(C_MUTED)),
-            Span::styled(format!("{:<6}", "Year"), Style::default().fg(C_MUTED)),
-            Span::styled(format!("{:<8}", "Rating"), Style::default().fg(C_MUTED)),
-            Span::styled("Type", Style::default().fg(C_MUTED)),
+            Span::styled(format!("{:<4} ", "#"), Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<45}", "Title"), Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<6}", "Year"), Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<8}", "Rating"), Style::default().fg(theme.muted)),
+            Span::styled("Type", Style::default().fg(theme.muted)),
         ])),
         header_chunks[0],
     );
@@ -361,9 +391,10 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
             let is_selected = abs_i == app.selected_movie;
 
             let year = r.year.map(|y| y.to_string()).unwrap_or_else(|| "─".into());
+            let rating_icon = if is_kitty { "󰓎" } else { "★" };
             let rating = r
                 .rating
-                .map(|rt| format!("★{:.1}", rt))
+                .map(|rt| format!("{}{:.1}", rating_icon, rt))
                 .unwrap_or_else(|| "─".into());
             let title = truncate(&r.title, 44);
             let ctype = r.content_type.to_string();
@@ -373,35 +404,35 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
 
             if is_selected {
                 ListItem::new(Line::from(vec![
-                    Span::styled(num_str, Style::default().fg(C_ACCENT).bold()),
+                    Span::styled(num_str, Style::default().fg(theme.accent).bold()),
                     Span::styled(
                         format!("{:<45}", title),
-                        Style::default().fg(C_BG).bg(C_ACCENT).bold(),
+                        Style::default().fg(theme.bg).bg(theme.accent).bold(),
                     ),
                     Span::styled(
                         format!("{:<6}", year),
-                        Style::default().fg(C_BG).bg(C_ACCENT),
+                        Style::default().fg(theme.bg).bg(theme.accent),
                     ),
                     Span::styled(
                         format!("{:<8}", rating),
-                        Style::default().fg(C_BG).bg(C_ACCENT),
+                        Style::default().fg(theme.bg).bg(theme.accent),
                     ),
                     Span::styled(
                         ctype_short.to_owned(),
-                        Style::default().fg(C_BG).bg(C_ACCENT),
+                        Style::default().fg(theme.bg).bg(theme.accent),
                     ),
                 ]))
             } else {
-                let title_color = if abs_i.is_multiple_of(2) { C_TEXT } else { Color::Rgb(200, 200, 215) };
+                let title_color = if abs_i.is_multiple_of(2) { theme.text } else { theme.muted };
                 ListItem::new(Line::from(vec![
-                    Span::styled(num_str, Style::default().fg(C_MUTED)),
+                    Span::styled(num_str, Style::default().fg(theme.muted)),
                     Span::styled(format!("{:<45}", title), Style::default().fg(title_color)),
-                    Span::styled(format!("{:<6}", year), Style::default().fg(C_MUTED)),
+                    Span::styled(format!("{:<6}", year), Style::default().fg(theme.muted)),
                     Span::styled(
                         format!("{:<8}", rating),
-                        Style::default().fg(C_ACCENT),
+                        Style::default().fg(theme.accent),
                     ),
-                    Span::styled(ctype_short.to_string(), Style::default().fg(C_PURPLE)),
+                    Span::styled(ctype_short.to_string(), Style::default().fg(theme.purple)),
                 ]))
             }
         })
@@ -421,7 +452,7 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
     let mut scroll_state = ScrollbarState::new(list.len()).position(app.scroll_offset);
     f.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .style(Style::default().fg(C_BORDER)),
+            .style(Style::default().fg(theme.border)),
         area.inner(Margin { horizontal: 0, vertical: 1 }),
         &mut scroll_state,
     );
@@ -429,14 +460,16 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Movie detail ─────────────────────────────────────────────────────────────
 
-fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
+fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let Some(movie) = &app.current_movie else {
         f.render_widget(
-            Paragraph::new("Loading…").style(Style::default().fg(C_MUTED)),
+            Paragraph::new("Loading…").style(Style::default().fg(theme.muted)),
             area,
         );
         return;
     };
+
+    let is_kitty = crate::kitty::is_kitty();
 
     // Split: left = info, right = poster (if kitty)
     let (info_area, poster_area_opt) = if app.config.ui.kitty_images
@@ -453,15 +486,16 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // Info panel
+    let movie_icon = if is_kitty { "󰟖" } else { "🎬" };
     let block = Block::default()
         .title(Span::styled(
-            format!(" 🎬 {} ", movie.title),
-            Style::default().fg(C_ACCENT).bold(),
+            format!(" {} {} ", movie_icon, movie.title),
+            Style::default().fg(theme.accent).bold(),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(info_area);
     f.render_widget(block, info_area);
@@ -471,27 +505,28 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
 
     // Title + year
     lines.push(Line::from(vec![
-        Span::styled(&movie.title, Style::default().fg(C_ACCENT).bold().add_modifier(Modifier::BOLD)),
+        Span::styled(&movie.title, Style::default().fg(theme.accent).bold().add_modifier(Modifier::BOLD)),
         Span::styled("  ", Style::default()),
         Span::styled(
             movie.year.map(|y| format!("({})", y)).unwrap_or_default(),
-            Style::default().fg(C_MUTED),
+            Style::default().fg(theme.muted),
         ),
     ]));
 
     if let Some(tl) = &movie.tagline {
         lines.push(Line::from(Span::styled(
             format!("\"{}\"", tl),
-            Style::default().fg(C_ACCENT2).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.accent2).add_modifier(Modifier::ITALIC),
         )));
     }
 
     lines.push(Line::from(""));
 
     // Rating row
+    let rating_icon = if is_kitty { "󰓎" } else { "★" };
     let rating_str = movie
         .rating
-        .map(|r| format!("★ {:.1}/10", r))
+        .map(|r| format!("{} {:.1}/10", rating_icon, r))
         .unwrap_or_else(|| "No rating".into());
     let votes_str = movie
         .votes
@@ -499,27 +534,30 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or_default();
     
     let mut rating_line = vec![
-        Span::styled("  Rating:  ", Style::default().fg(C_MUTED)),
-        Span::styled(rating_str, Style::default().fg(C_ACCENT).bold()),
-        Span::styled(votes_str, Style::default().fg(C_MUTED)),
+        Span::styled("  Rating:  ", Style::default().fg(theme.muted)),
+        Span::styled(rating_str, Style::default().fg(theme.accent).bold()),
+        Span::styled(votes_str, Style::default().fg(theme.muted)),
     ];
 
-    rating_line.push(Span::styled("    PlayIMDb: ", Style::default().fg(C_MUTED)));
+    let check_icon = if is_kitty { "󰖟" } else { "PlayIMDb:" };
+    rating_line.push(Span::styled(format!("    {} ", check_icon), Style::default().fg(theme.muted)));
     match &app.playimdb_status {
         super::app::PlayImdbStatus::Unknown => {
-            rating_line.push(Span::styled("❓ Unknown", Style::default().fg(C_MUTED)));
+            rating_line.push(Span::styled("❓ Unknown", Style::default().fg(theme.muted)));
         }
         super::app::PlayImdbStatus::Checking => {
-            rating_line.push(Span::styled("⏳ Checking...", Style::default().fg(C_ACCENT2).bold()));
+            rating_line.push(Span::styled("⏳ Checking...", Style::default().fg(theme.accent2).bold()));
         }
         super::app::PlayImdbStatus::Available => {
-            rating_line.push(Span::styled("🟢 Available", Style::default().fg(C_GREEN).bold()));
+            let ok_icon = if is_kitty { "󰄬 Available" } else { "🟢 Available" };
+            rating_line.push(Span::styled(ok_icon, Style::default().fg(theme.green).bold()));
         }
         super::app::PlayImdbStatus::NotAvailable => {
-            rating_line.push(Span::styled("🔴 Not Found", Style::default().fg(C_RED).bold()));
+            let err_icon = if is_kitty { "󰅖 Not Found" } else { "🔴 Not Found" };
+            rating_line.push(Span::styled(err_icon, Style::default().fg(theme.red).bold()));
         }
         super::app::PlayImdbStatus::Error(e) => {
-            rating_line.push(Span::styled(format!("⚠️ Error ({})", e), Style::default().fg(C_RED)));
+            rating_line.push(Span::styled(format!("⚠️ Error ({})", e), Style::default().fg(theme.red)));
         }
     }
     
@@ -531,25 +569,26 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         .map(|r| format!("{} min", r))
         .unwrap_or_else(|| "–".into());
     lines.push(Line::from(vec![
-        Span::styled("  Type:    ", Style::default().fg(C_MUTED)),
-        Span::styled(movie.content_type.to_string(), Style::default().fg(C_PURPLE)),
-        Span::styled("   Runtime: ", Style::default().fg(C_MUTED)),
-        Span::styled(runtime_str, Style::default().fg(C_TEXT)),
+        Span::styled("  Type:    ", Style::default().fg(theme.muted)),
+        Span::styled(movie.content_type.to_string(), Style::default().fg(theme.purple)),
+        Span::styled("   Runtime: ", Style::default().fg(theme.muted)),
+        Span::styled(runtime_str, Style::default().fg(theme.text)),
     ]));
 
     // Genres
     if !movie.genres.is_empty() {
+        let sep_sym = if is_kitty { "󰇙" } else { "·" };
         let genres: Vec<Span> = movie
             .genres
             .iter()
             .flat_map(|g| {
                 vec![
-                    Span::styled(g, Style::default().fg(C_ACCENT2)),
-                    Span::styled(" · ", Style::default().fg(C_MUTED)),
+                    Span::styled(g, Style::default().fg(theme.accent2)),
+                    Span::styled(format!(" {} ", sep_sym), Style::default().fg(theme.muted)),
                 ]
             })
             .collect();
-        let mut genre_line = vec![Span::styled("  Genres:  ", Style::default().fg(C_MUTED))];
+        let mut genre_line = vec![Span::styled("  Genres:  ", Style::default().fg(theme.muted))];
         genre_line.extend(genres);
         lines.push(Line::from(genre_line));
     }
@@ -557,8 +596,8 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
     // Director
     if !movie.director.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("  Director: ", Style::default().fg(C_MUTED)),
-            Span::styled(movie.director.join(", "), Style::default().fg(C_TEXT)),
+            Span::styled("  Director: ", Style::default().fg(theme.muted)),
+            Span::styled(movie.director.join(", "), Style::default().fg(theme.text)),
         ]));
     }
 
@@ -566,30 +605,31 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
     if !movie.cast.is_empty() {
         let cast_list = movie.cast.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
         lines.push(Line::from(vec![
-            Span::styled("  Cast:    ", Style::default().fg(C_MUTED)),
-            Span::styled(cast_list, Style::default().fg(C_TEXT)),
+            Span::styled("  Cast:    ", Style::default().fg(theme.muted)),
+            Span::styled(cast_list, Style::default().fg(theme.text)),
         ]));
     }
 
     // Language / country
     if !movie.language.is_empty() {
         lines.push(Line::from(vec![
-            Span::styled("  Language: ", Style::default().fg(C_MUTED)),
-            Span::styled(movie.language.join(", "), Style::default().fg(C_TEXT)),
+            Span::styled("  Language: ", Style::default().fg(theme.muted)),
+            Span::styled(movie.language.join(", "), Style::default().fg(theme.text)),
         ]));
     }
 
     if let Some(rd) = &movie.release_date {
         lines.push(Line::from(vec![
-            Span::styled("  Released: ", Style::default().fg(C_MUTED)),
-            Span::styled(rd, Style::default().fg(C_TEXT)),
+            Span::styled("  Released: ", Style::default().fg(theme.muted)),
+            Span::styled(rd, Style::default().fg(theme.text)),
         ]));
     }
 
     lines.push(Line::from(""));
+    let plot_icon = if is_kitty { "󰦨" } else { "" };
     lines.push(Line::from(Span::styled(
-        "  Plot:",
-        Style::default().fg(C_MUTED).bold(),
+        format!("  {} Plot:", plot_icon),
+        Style::default().fg(theme.muted).bold(),
     )));
 
     if let Some(plot) = &movie.plot {
@@ -597,7 +637,7 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         for line in wrap_text(plot, max_width) {
             lines.push(Line::from(Span::styled(
                 format!("  {}", line),
-                Style::default().fg(C_TEXT),
+                Style::default().fg(theme.text),
             )));
         }
     }
@@ -612,27 +652,28 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
             .take(8)
             .flat_map(|k| {
                 vec![
-                    Span::styled(format!("[{}]", k), Style::default().fg(C_MUTED)),
+                    Span::styled(format!("[{}]", k), Style::default().fg(theme.muted)),
                     Span::styled(" ", Style::default()),
                 ]
             })
             .collect();
-        let mut kw_line = vec![Span::styled("  Tags:   ", Style::default().fg(C_MUTED))];
+        let mut kw_line = vec![Span::styled("  Tags:   ", Style::default().fg(theme.muted))];
         kw_line.extend(kw);
         lines.push(Line::from(kw_line));
     }
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled("  IMDB:   ", Style::default().fg(C_MUTED)),
-        Span::styled(&movie.imdb_url, Style::default().fg(C_ACCENT2)),
+        Span::styled("  IMDB:   ", Style::default().fg(theme.muted)),
+        Span::styled(&movie.imdb_url, Style::default().fg(theme.accent2)),
     ]));
 
     lines.push(Line::from(""));
+    let play_btn = if is_kitty { "󰐊" } else { "Enter / w" };
     lines.push(Line::from(vec![
         Span::styled(
-            "  [ Enter / w ]  Fetch streams from playimdb.com",
-            Style::default().fg(C_GREEN).bold(),
+            format!("  [ {} ]  Fetch streams from playimdb.com", play_btn),
+            Style::default().fg(theme.green).bold(),
         ),
     ]));
 
@@ -653,7 +694,7 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         let mut sb_state = ScrollbarState::new(total_lines).position(scroll);
         f.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .style(Style::default().fg(C_BORDER)),
+                .style(Style::default().fg(theme.border)),
             info_area.inner(Margin { horizontal: 0, vertical: 1 }),
             &mut sb_state,
         );
@@ -664,14 +705,15 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
         let poster_block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(C_BORDER))
-            .style(Style::default().bg(C_SURFACE));
+            .border_style(Style::default().fg(theme.border))
+            .style(Style::default().bg(theme.surface));
         let inner_poster = poster_block.inner(poster_area);
         f.render_widget(poster_block, poster_area);
+        let poster_hint = if is_kitty { "\n\n\n  󰋩\n  Poster" } else { "\n\n\n  🖼️\n  Poster" };
         f.render_widget(
-            Paragraph::new("\n\n\n  🖼️\n  Poster")
+            Paragraph::new(poster_hint)
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(C_MUTED)),
+                .style(Style::default().fg(theme.muted)),
             inner_poster,
         );
 
@@ -693,66 +735,72 @@ fn draw_movie_detail(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Stream select ────────────────────────────────────────────────────────────
 
-fn draw_stream_select(f: &mut Frame, app: &App, area: Rect) {
+fn draw_stream_select(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let Some(info) = &app.stream_info else {
         return;
     };
 
+    let is_kitty = crate::kitty::is_kitty();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(4), Constraint::Min(0)])
         .split(area);
 
     // Header info
+    let stream_icon = if is_kitty { "󰖟" } else { "🌐" };
     let header = Block::default()
-        .title(Span::styled(" 🌐 Stream Sources ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Stream Sources ", stream_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
     let header_inner = header.inner(chunks[0]);
     f.render_widget(header, chunks[0]);
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("  Source: ", Style::default().fg(C_MUTED)),
-            Span::styled(&info.stream_url, Style::default().fg(C_ACCENT2)),
+            Span::styled("  Source: ", Style::default().fg(theme.muted)),
+            Span::styled(&info.stream_url, Style::default().fg(theme.accent2)),
         ])),
         header_inner,
     );
 
     // Options list
+    let nav_hint = if is_kitty { " 󰁝󰁅 Navigate  󰘳 Enter=Play  󰇚 D=Download  󰈆 Esc=Back " } else { " ↑↓ Navigate  Enter=Play  D=Download  Esc=Back " };
     let block = Block::default()
         .title(Span::styled(
-            " ↑↓ Navigate  Enter=Play  D=Download  Esc=Back ",
-            Style::default().fg(C_MUTED),
+            nav_hint,
+            Style::default().fg(theme.muted),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let mut items: Vec<ListItem> = Vec::new();
 
     // Quality options
     if !info.qualities.is_empty() {
+        let label = if is_kitty { "  󰇙 Direct Streams 󰇙" } else { "  — Direct Streams —" };
         items.push(ListItem::new(Line::from(Span::styled(
-            "  — Direct Streams —",
-            Style::default().fg(C_MUTED).add_modifier(Modifier::ITALIC),
+            label,
+            Style::default().fg(theme.muted).add_modifier(Modifier::ITALIC),
         ))));
         for (i, q) in info.qualities.iter().enumerate() {
             let is_selected = i == app.selected_quality;
+            let size_icon = if is_kitty { "󰠭" } else { "📦" };
             let size_str = q
                 .size_bytes
-                .map(|s| format!("  📦 {}", format_size(s)))
+                .map(|s| format!("  {} {}", size_icon, format_size(s)))
                 .unwrap_or_default();
+            let play_icon = if is_kitty { "󰐊" } else { "▶" };
             let content = format!(
-                "  ▶  {:20}  [{}]{}",
-                q.label, q.format, size_str
+                "  {}  {:20}  [{}]{}",
+                play_icon, q.label, q.format, size_str
             );
             let style = if is_selected {
-                Style::default().fg(C_BG).bg(C_ACCENT).bold()
+                Style::default().fg(theme.bg).bg(theme.accent).bold()
             } else {
-                Style::default().fg(C_TEXT)
+                Style::default().fg(theme.text)
             };
             items.push(ListItem::new(content).style(style));
         }
@@ -760,26 +808,30 @@ fn draw_stream_select(f: &mut Frame, app: &App, area: Rect) {
 
     // Torrent links
     if !info.torrent_links.is_empty() {
+        let label = if is_kitty { "  󰇙 Torrent / Magnet 󰇙" } else { "  — Torrent / Magnet —" };
         items.push(ListItem::new(Line::from(Span::styled(
-            "  — Torrent / Magnet —",
-            Style::default().fg(C_MUTED).add_modifier(Modifier::ITALIC),
+            label,
+            Style::default().fg(theme.muted).add_modifier(Modifier::ITALIC),
         ))));
         for (i, t) in info.torrent_links.iter().enumerate() {
             let abs_i = info.qualities.len() + i;
             let is_selected = abs_i == app.selected_quality;
+            let size_icon = if is_kitty { "󰠭" } else { "📦" };
+            let seed_icon = if is_kitty { "󰓠" } else { "🌱" };
             let size_str = t
                 .size_bytes
-                .map(|s| format!("  📦 {}", format_size(s)))
+                .map(|s| format!("  {} {}", size_icon, format_size(s)))
                 .unwrap_or_default();
             let seeds = t
                 .seeders
-                .map(|s| format!("  🌱{}", s))
+                .map(|s| format!("  {}{}", seed_icon, s))
                 .unwrap_or_default();
-            let content = format!("  🧲  {}{}{}", truncate(&t.label, 30), size_str, seeds);
+            let mag_icon = if is_kitty { "󰈡" } else { "🧲" };
+            let content = format!("  {}  {}{}{}", mag_icon, truncate(&t.label, 30), size_str, seeds);
             let style = if is_selected {
-                Style::default().fg(C_BG).bg(C_GREEN).bold()
+                Style::default().fg(theme.bg).bg(theme.green).bold()
             } else {
-                Style::default().fg(C_GREEN)
+                Style::default().fg(theme.green)
             };
             items.push(ListItem::new(content).style(style));
         }
@@ -788,7 +840,7 @@ fn draw_stream_select(f: &mut Frame, app: &App, area: Rect) {
     if items.is_empty() {
         items.push(ListItem::new(Line::from(Span::styled(
             "  No streams found. Press Esc to go back.",
-            Style::default().fg(C_RED),
+            Style::default().fg(theme.red),
         ))));
     }
 
@@ -799,17 +851,19 @@ fn draw_stream_select(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Download progress ────────────────────────────────────────────────────────
 
-fn draw_download_progress(f: &mut Frame, app: &App, area: Rect) {
+fn draw_download_progress(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let Some(dp) = &app.download_progress else {
         return;
     };
 
+    let is_kitty = crate::kitty::is_kitty();
+    let dl_icon = if is_kitty { "󰇚" } else { "⬇️" };
     let block = Block::default()
-        .title(Span::styled(" ⬇️  Downloading ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Downloading ", dl_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -826,7 +880,7 @@ fn draw_download_progress(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(
         Paragraph::new(format!("  File: {}", dp.filename))
-            .style(Style::default().fg(C_TEXT)),
+            .style(Style::default().fg(theme.text)),
         chunks[0],
     );
 
@@ -839,7 +893,7 @@ fn draw_download_progress(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(
         Gauge::default()
             .block(Block::default().borders(Borders::NONE))
-            .gauge_style(Style::default().fg(C_ACCENT).bg(C_SURFACE2))
+            .gauge_style(Style::default().fg(theme.accent).bg(theme.surface2))
             .percent(pct)
             .label(format!(
                 "{} / {}",
@@ -854,23 +908,25 @@ fn draw_download_progress(f: &mut Frame, app: &App, area: Rect) {
             "  Speed: {}   Ctrl+C to cancel",
             crate::downloader::format_speed(dp.speed)
         ))
-        .style(Style::default().fg(C_MUTED)),
+        .style(Style::default().fg(theme.muted)),
         chunks[2],
     );
 }
 
 // ─── Help screen ──────────────────────────────────────────────────────────────
 
-fn draw_help(f: &mut Frame, app: &App, area: Rect) {
+fn draw_help(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let is_kitty = crate::kitty::is_kitty();
+    let help_icon = if is_kitty { "󰋖" } else { "❓" };
     let block = Block::default()
         .title(Span::styled(
-            " ❓ Watchie Help ",
-            Style::default().fg(C_ACCENT).bold(),
+            format!(" {} Watchie Help ", help_icon),
+            Style::default().fg(theme.accent).bold(),
         ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -912,40 +968,40 @@ fn draw_help(f: &mut Frame, app: &App, area: Rect) {
     for (section, keys) in &sections {
         lines.push(Line::from(Span::styled(
             format!("  {} ", section),
-            Style::default().fg(C_ACCENT).bold(),
+            Style::default().fg(theme.accent).bold(),
         )));
         lines.push(Line::from(Span::styled(
             format!("  {}", "─".repeat(40)),
-            Style::default().fg(C_BORDER),
+            Style::default().fg(theme.border),
         )));
         for (key, desc) in keys {
             lines.push(Line::from(vec![
-                Span::styled(format!("  {:18}", key), Style::default().fg(C_ACCENT2).bold()),
-                Span::styled(desc.to_string(), Style::default().fg(C_TEXT)),
+                Span::styled(format!("  {:18}", key), Style::default().fg(theme.accent2).bold()),
+                Span::styled(desc.to_string(), Style::default().fg(theme.text)),
             ]));
         }
         lines.push(Line::from(""));
     }
 
     lines.push(Line::from(vec![
-        Span::styled("  Config file: ", Style::default().fg(C_MUTED)),
+        Span::styled("  Config file: ", Style::default().fg(theme.muted)),
         Span::styled(
             crate::config::Config::config_path()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "unknown".into()),
-            Style::default().fg(C_ACCENT2),
+            Style::default().fg(theme.accent2),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  Download dir: ", Style::default().fg(C_MUTED)),
+        Span::styled("  Download dir: ", Style::default().fg(theme.muted)),
         Span::styled(
             app.config.download_dir.display().to_string(),
-            Style::default().fg(C_ACCENT2),
+            Style::default().fg(theme.accent2),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  Player: ", Style::default().fg(C_MUTED)),
-        Span::styled(&app.config.player.command, Style::default().fg(C_ACCENT2)),
+        Span::styled("  Player: ", Style::default().fg(theme.muted)),
+        Span::styled(&app.config.player.command, Style::default().fg(theme.accent2)),
     ]));
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
@@ -953,12 +1009,12 @@ fn draw_help(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
-fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -990,30 +1046,31 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         .split(inner);
 
     // 1. Dynamic context-sensitive key bindings
+    let is_kitty = crate::kitty::is_kitty();
     let help_keys = match app.screen {
-        Screen::Home => "Enter: Browse • /: Search • c: Categories • q: Quit",
-        Screen::CategoryList => "Enter: Select • Esc/b: Back • q: Quit",
-        Screen::MovieList => "Enter: Detail • p: Play • d: Download • c: Categories • /: Search • q: Quit",
-        Screen::MovieDetail => "w: Streams • Esc/b: Back • i: Image Toggle • o: Browser • q: Quit",
-        Screen::SeasonList => "Enter: Episodes • Esc/b: Back • q: Quit",
-        Screen::EpisodeList => "Enter: Streams • p: Play • d: Download • Esc/b: Back • o: Browser • q: Quit",
-        Screen::StreamSelect => "Enter: Play • D: Download • Esc/b: Back • o: Browser • q: Quit",
-        Screen::DownloadProgress => "Esc/b: Back • q: Quit",
-        Screen::Search => "Type query • Enter: Search • Esc: Cancel",
-        Screen::Help => "Esc/b: Back • q: Quit",
-        Screen::Setup => "Type TMDB Key • Enter: Confirm • q: Quit",
+        Screen::Home => if is_kitty { "󰘳 Browse • 󰍉 Search • 󰉋 Categories • 󰈆 Quit" } else { "Enter: Browse • /: Search • c: Categories • q: Quit" },
+        Screen::CategoryList => if is_kitty { "󰘳 Select • 󰈆 Back • 󰈆 Quit" } else { "Enter: Select • Esc/b: Back • q: Quit" },
+        Screen::MovieList => if is_kitty { "󰘳 Detail • 󰐊 Play • 󰇚 Download • 󰉋 Categories • 󰍉 Search • 󰈆 Quit" } else { "Enter: Detail • p: Play • d: Download • c: Categories • /: Search • q: Quit" },
+        Screen::MovieDetail => if is_kitty { "󰖟 Streams • 󰈆 Back • 󰋩 Toggle • 󰖟 Browser • 󰈆 Quit" } else { "w: Streams • Esc/b: Back • i: Image Toggle • o: Browser • q: Quit" },
+        Screen::SeasonList => if is_kitty { "󰘳 Episodes • 󰈆 Back • 󰈆 Quit" } else { "Enter: Episodes • Esc/b: Back • q: Quit" },
+        Screen::EpisodeList => if is_kitty { "󰘳 Streams • 󰐊 Play • 󰇚 Download • 󰈆 Back • 󰖟 Browser • 󰈆 Quit" } else { "Enter: Streams • p: Play • d: Download • Esc/b: Back • o: Browser • q: Quit" },
+        Screen::StreamSelect => if is_kitty { "󰘳 Play • 󰇚 Download • 󰈆 Back • 󰖟 Browser • 󰈆 Quit" } else { "Enter: Play • D: Download • Esc/b: Back • o: Browser • q: Quit" },
+        Screen::DownloadProgress => if is_kitty { "󰈆 Back • 󰈆 Quit" } else { "Esc/b: Back • q: Quit" },
+        Screen::Search => if is_kitty { "Type query • 󰘳 Search • 󰈆 Cancel" } else { "Type query • Enter: Search • Esc: Cancel" },
+        Screen::Help => if is_kitty { "󰈆 Back • 󰈆 Quit" } else { "Esc/b: Back • q: Quit" },
+        Screen::Setup => if is_kitty { "Type TMDB Key • 󰘳 Confirm • 󰈆 Quit" } else { "Type TMDB Key • Enter: Confirm • q: Quit" },
     };
 
     // Status message overrides help keys if active
     let (msg, style) = if let Some(s) = &app.status_msg {
         let color = match app.status_style {
-            StatusStyle::Info => C_ACCENT2,
-            StatusStyle::Success => C_GREEN,
-            StatusStyle::Error => C_RED,
+            StatusStyle::Info => theme.accent2,
+            StatusStyle::Success => theme.green,
+            StatusStyle::Error => theme.red,
         };
         (s.as_str(), Style::default().fg(color))
     } else {
-        (help_keys, Style::default().fg(C_MUTED))
+        (help_keys, Style::default().fg(theme.muted))
     };
 
     f.render_widget(
@@ -1027,50 +1084,62 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Screen::MovieList => {
                 let total = app.movie_list.len();
                 let current = if total > 0 { app.selected_movie + 1 } else { 0 };
-                format!("🎬 {}: {}/{}", app.list_title, current, total)
+                let movie_icon = if is_kitty { "󰟖" } else { "🎬" };
+                format!("{} {}: {}/{}", movie_icon, app.list_title, current, total)
             }
             Screen::MovieDetail => {
                 if let Some(ref m) = app.current_movie {
-                    format!("🎥 Detail: {}", m.title)
+                    let movie_icon = if is_kitty { "󰟖" } else { "🎥" };
+                    format!("{} Detail: {}", movie_icon, m.title)
                 } else {
-                    "🎥 Movie Detail".to_string()
+                    let movie_icon = if is_kitty { "󰟖" } else { "🎥" };
+                    format!("{} Movie Detail", movie_icon)
                 }
             }
             Screen::SeasonList => {
                 let total = app.season_list.len();
                 let current = if total > 0 { app.selected_season + 1 } else { 0 };
-                format!("📺 Seasons: {}/{}", current, total)
+                let tv_icon = if is_kitty { "󰏤" } else { "📺" };
+                format!("{} Seasons: {}/{}", tv_icon, current, total)
             }
             Screen::EpisodeList => {
                 let total = app.episode_list.len();
                 let current = if total > 0 { app.selected_episode + 1 } else { 0 };
-                format!("📺 Episodes: {}/{}", current, total)
+                let tv_icon = if is_kitty { "󰏤" } else { "📺" };
+                format!("{} Episodes: {}/{}", tv_icon, current, total)
             }
             Screen::StreamSelect => {
                 let total = app.stream_info.as_ref().map(|s| s.qualities.len() + s.torrent_links.len()).unwrap_or(0);
                 let current = if total > 0 { app.selected_quality + 1 } else { 0 };
-                format!("🌐 Streams: {}/{}", current, total)
+                let stream_icon = if is_kitty { "󰖟" } else { "🌐" };
+                format!("{} Streams: {}/{}", stream_icon, current, total)
             }
             Screen::CategoryList => {
                 let total = app.categories.len();
                 let current = if total > 0 { app.selected_category + 1 } else { 0 };
-                format!("📁 Categories: {}/{}", current, total)
+                let cat_icon = if is_kitty { "󰉋" } else { "📁" };
+                format!("{} Categories: {}/{}", cat_icon, current, total)
             }
             Screen::DownloadProgress => {
                 if let Some(ref dp) = app.download_progress {
-                    format!("⬇️ {}", dp.filename)
+                    let dl_icon = if is_kitty { "󰇚" } else { "⬇️" };
+                    format!("{} {}", dl_icon, dp.filename)
                 } else {
-                    "⬇️ Downloading".to_string()
+                    let dl_icon = if is_kitty { "󰇚" } else { "⬇️" };
+                    format!("{} Downloading", dl_icon)
                 }
             }
-            Screen::Home => "🏠 Home".to_string(),
-            Screen::Search => format!("🔍 Search: \"{}\"", app.search_query),
-            Screen::Setup => "⚙️ Setup".to_string(),
-            Screen::Help => "❓ Help".to_string(),
+            Screen::Home => if is_kitty { "󰋜 Home".to_string() } else { "🏠 Home".to_string() },
+            Screen::Search => {
+                let search_icon = if is_kitty { "󰍉" } else { "🔍" };
+                format!("{} Search: \"{}\"", search_icon, app.search_query)
+            },
+            Screen::Setup => if is_kitty { "󰒓 Setup".to_string() } else { "⚙️ Setup".to_string() },
+            Screen::Help => if is_kitty { "󰋖 Help".to_string() } else { "❓ Help".to_string() },
         };
 
         f.render_widget(
-            Paragraph::new(Span::styled(context_txt, Style::default().fg(C_ACCENT2))).alignment(Alignment::Center),
+            Paragraph::new(Span::styled(context_txt, Style::default().fg(theme.accent2))).alignment(Alignment::Center),
             chunks[1],
         );
     }
@@ -1091,28 +1160,34 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         download_dir_str.into_owned()
     };
 
+    let play_icon = if is_kitty { "󰐊 " } else { "🚀 " };
+    let dir_icon = if is_kitty { "󰉋 " } else { "📁 " };
+
     let config_status = if chunks[right_idx].width >= 35 {
-        format!("🚀 {} • 📁 {}  ", player, display_dir)
+        format!("{}{}{} • {}{}  ", play_icon, player, if is_kitty { "" } else { "" }, dir_icon, display_dir)
     } else {
-        format!("🚀 {}  ", player)
+        format!("{}{}{}  ", play_icon, player, if is_kitty { "" } else { "" })
     };
 
     let mut right_spans = vec![
-        Span::styled(config_status, Style::default().fg(C_MUTED)),
+        Span::styled(config_status, Style::default().fg(theme.muted)),
     ];
 
     match &app.loading {
         LoadingState::Loading(_) => {
-            right_spans.push(Span::styled("⟳ Loading…", Style::default().fg(C_ACCENT).bold()));
+            let load_icon = if is_kitty { "󰑐" } else { "⟳" };
+            right_spans.push(Span::styled(format!("{} Loading…", load_icon), Style::default().fg(theme.accent).bold()));
         }
         LoadingState::Error(msg) => {
-            right_spans.push(Span::styled(format!("✕ Error: {}", msg), Style::default().fg(C_RED).bold()));
+            let err_icon = if is_kitty { "󰅖" } else { "✕" };
+            right_spans.push(Span::styled(format!("{} Error: {}", err_icon, msg), Style::default().fg(theme.red).bold()));
         }
         LoadingState::Idle => {
             if app.config.ui.kitty_images && chunks[right_idx].width >= 40 {
-                right_spans.push(Span::styled("🖼️  ", Style::default().fg(C_MUTED)));
+                let img_icon = if is_kitty { "󰋩  " } else { "🖼️  " };
+                right_spans.push(Span::styled(img_icon, Style::default().fg(theme.muted)));
             }
-            right_spans.push(Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(C_MUTED)));
+            right_spans.push(Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(theme.muted)));
         }
     }
 
@@ -1124,24 +1199,28 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── Loading overlay ──────────────────────────────────────────────────────────
 
-fn draw_loading_overlay(f: &mut Frame, area: Rect, msg: &str) {
+fn draw_loading_overlay(f: &mut Frame, area: Rect, msg: &str, theme: &Theme) {
     let popup = centered_rect(50, 20, area);
     f.render_widget(Clear, popup);
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
+    
+    let is_kitty = crate::kitty::is_kitty();
+    let load_icon = if is_kitty { "󰑐" } else { "⟳" };
+
     f.render_widget(
         Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled("⟳", Style::default().fg(C_ACCENT).bold())),
+            Line::from(Span::styled(load_icon, Style::default().fg(theme.accent).bold())),
             Line::from(""),
-            Line::from(Span::styled(msg, Style::default().fg(C_TEXT))),
+            Line::from(Span::styled(msg, Style::default().fg(theme.text))),
         ])
         .alignment(Alignment::Center),
         inner,
@@ -1213,51 +1292,55 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn draw_setup(f: &mut Frame, _app: &App, area: Rect) {
+fn draw_setup(f: &mut Frame, _app: &App, area: Rect, theme: &Theme) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_ACCENT2))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.accent2))
+        .style(Style::default().bg(theme.surface));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    let is_kitty = crate::kitty::is_kitty();
+    let setup_icon = if is_kitty { "󰒓" } else { "⚙️" };
+    let key_icon = if is_kitty { "󰌆" } else { "🔑" };
+
     let text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("   Welcome to ", Style::default().fg(C_TEXT)),
-            Span::styled("watchie", Style::default().fg(C_ACCENT).bold()),
-            Span::styled("!", Style::default().fg(C_TEXT)),
+            Span::styled(format!("   {} Welcome to ", setup_icon), Style::default().fg(theme.text)),
+            Span::styled("watchie", Style::default().fg(theme.accent).bold()),
+            Span::styled("!", Style::default().fg(theme.text)),
         ]),
         Line::from(""),
         Line::from("   To browse, search, and view movies, a free TMDB API key is required."),
         Line::from("   IMDB is heavily protected, so watchie uses TMDB to fetch movie metadata."),
         Line::from(""),
         Line::from(vec![
-            Span::styled("   How to get a key (100% Free & Instant):", Style::default().fg(C_TEXT).bold())
+            Span::styled(format!("   {} How to get a key (100% Free & Instant):", key_icon), Style::default().fg(theme.text).bold())
         ]),
         Line::from("   1. Create a free account at https://www.themoviedb.org"),
         Line::from("   2. Go to your Account Settings -> API"),
         Line::from("   3. Create an API Key (choose 'Developer' option)"),
         Line::from(""),
         Line::from(vec![
-            Span::styled("   How to configure watchie:", Style::default().fg(C_TEXT).bold())
+            Span::styled("   How to configure watchie:", Style::default().fg(theme.text).bold())
         ]),
         Line::from(vec![
-            Span::styled("   - Option A: ", Style::default().fg(C_MUTED)),
-            Span::styled("Run: ", Style::default().fg(C_TEXT)),
-            Span::styled("watchie config set-tmdb-key <YOUR_KEY>", Style::default().fg(C_ACCENT)),
+            Span::styled("   - Option A: ", Style::default().fg(theme.muted)),
+            Span::styled("Run: ", Style::default().fg(theme.text)),
+            Span::styled("watchie config set-tmdb-key <YOUR_KEY>", Style::default().fg(theme.accent)),
         ]),
         Line::from(vec![
-            Span::styled("   - Option B: ", Style::default().fg(C_MUTED)),
-            Span::styled("Set env var: ", Style::default().fg(C_TEXT)),
-            Span::styled("export TMDB_API_KEY=<YOUR_KEY>", Style::default().fg(C_ACCENT)),
+            Span::styled("   - Option B: ", Style::default().fg(theme.muted)),
+            Span::styled("Set env var: ", Style::default().fg(theme.text)),
+            Span::styled("export TMDB_API_KEY=<YOUR_KEY>", Style::default().fg(theme.accent)),
         ]),
         Line::from(vec![
-            Span::styled("   - Option C: ", Style::default().fg(C_MUTED)),
-            Span::styled("Directly edit: ", Style::default().fg(C_TEXT)),
-            Span::styled("~/.config/watchie/config.toml", Style::default().fg(C_ACCENT2)),
+            Span::styled("   - Option C: ", Style::default().fg(theme.muted)),
+            Span::styled("Directly edit: ", Style::default().fg(theme.text)),
+            Span::styled("~/.config/watchie/config.toml", Style::default().fg(theme.accent2)),
         ]),
         Line::from(""),
         Line::from("   Press 'q' or 'Ctrl+C' to exit watchie."),
@@ -1268,7 +1351,7 @@ fn draw_setup(f: &mut Frame, _app: &App, area: Rect) {
 
 // ─── TV Season List screen ───────────────────────────────────────────────────
 
-fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_season_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let Some(movie) = &app.current_movie else {
         return;
     };
@@ -1278,13 +1361,16 @@ fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(area);
 
+    let is_kitty = crate::kitty::is_kitty();
+    let date_icon = if is_kitty { "󰃭" } else { "📅" };
+
     // Left: Seasons List
     let block = Block::default()
-        .title(Span::styled(" 📅 Seasons ", Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(format!(" {} Seasons ", date_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let items: Vec<ListItem> = app
         .season_list
@@ -1292,11 +1378,11 @@ fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, season)| {
             let is_selected = i == app.selected_season;
-            let prefix = if is_selected { "▶ " } else { "  " };
+            let prefix = if is_selected { if is_kitty { "󰁔 " } else { "▶ " } } else { "  " };
             let style = if is_selected {
-                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD).bg(C_SURFACE2)
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD).bg(theme.surface2)
             } else {
-                Style::default().fg(C_TEXT)
+                Style::default().fg(theme.text)
             };
             ListItem::new(format!("{}{}", prefix, season.name)).style(style)
         })
@@ -1307,12 +1393,13 @@ fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
 
     // Right: Selected Season Details
+    let info_icon = if is_kitty { "󰋖" } else { "ℹ️" };
     let details_block = Block::default()
-        .title(Span::styled(" ℹ️  Season Details ", Style::default().fg(C_ACCENT2).bold()))
+        .title(Span::styled(format!(" {} Season Details ", info_icon), Style::default().fg(theme.accent2).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
     
     let inner_area = details_block.inner(chunks[1]);
     f.render_widget(details_block, chunks[1]);
@@ -1320,33 +1407,35 @@ fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
     if let Some(season) = app.season_list.get(app.selected_season) {
         let mut lines = vec![
             Line::from(vec![
-                Span::styled("Show:         ", Style::default().fg(C_MUTED)),
-                Span::styled(&movie.title, Style::default().fg(C_TEXT)),
+                Span::styled("Show:         ", Style::default().fg(theme.muted)),
+                Span::styled(&movie.title, Style::default().fg(theme.text)),
             ]),
             Line::from(vec![
-                Span::styled("Title:        ", Style::default().fg(C_MUTED)),
-                Span::styled(&season.name, Style::default().fg(C_TEXT).bold()),
+                Span::styled("Title:        ", Style::default().fg(theme.muted)),
+                Span::styled(&season.name, Style::default().fg(theme.text).bold()),
             ]),
             Line::from(vec![
-                Span::styled("Season Num:   ", Style::default().fg(C_MUTED)),
-                Span::styled(season.season_number.to_string(), Style::default().fg(C_TEXT)),
+                Span::styled("Season Num:   ", Style::default().fg(theme.muted)),
+                Span::styled(season.season_number.to_string(), Style::default().fg(theme.text)),
             ]),
             Line::from(vec![
-                Span::styled("Episodes:     ", Style::default().fg(C_MUTED)),
-                Span::styled(season.episode_count.to_string(), Style::default().fg(C_ACCENT2).bold()),
+                Span::styled("Episodes:     ", Style::default().fg(theme.muted)),
+                Span::styled(season.episode_count.to_string(), Style::default().fg(theme.accent2).bold()),
             ]),
         ];
 
         if let Some(ref air_date) = season.air_date {
             lines.push(Line::from(vec![
-                Span::styled("Air Date:     ", Style::default().fg(C_MUTED)),
-                Span::styled(air_date, Style::default().fg(C_TEXT)),
+                Span::styled("Air Date:     ", Style::default().fg(theme.muted)),
+                Span::styled(air_date, Style::default().fg(theme.text)),
             ]));
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Press [Enter] to browse episodes", Style::default().fg(C_GREEN).bold())));
-        lines.push(Line::from(Span::styled("Press [Esc] to go back to series detail", Style::default().fg(C_MUTED))));
+        let ent_icon = if is_kitty { "󰘳" } else { "Enter" };
+        let esc_icon = if is_kitty { "󰈆" } else { "Esc" };
+        lines.push(Line::from(Span::styled(format!("Press [{}] to browse episodes", ent_icon), Style::default().fg(theme.green).bold())));
+        lines.push(Line::from(Span::styled(format!("Press [{}] to go back to series detail", esc_icon), Style::default().fg(theme.muted))));
 
         f.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }),
@@ -1357,7 +1446,7 @@ fn draw_season_list(f: &mut Frame, app: &App, area: Rect) {
 
 // ─── TV Episode List screen ──────────────────────────────────────────────────
 
-fn draw_episode_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_episode_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let Some(movie) = &app.current_movie else {
         return;
     };
@@ -1370,14 +1459,17 @@ fn draw_episode_list(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(area);
 
+    let is_kitty = crate::kitty::is_kitty();
+    let tv_icon = if is_kitty { "󰏤" } else { "📺" };
+
     // Left: Episodes List
-    let title_str = format!(" 📺 {} - Episodes ", season.name);
+    let title_str = format!(" {} {} - Episodes ", tv_icon, season.name);
     let block = Block::default()
-        .title(Span::styled(title_str, Style::default().fg(C_ACCENT).bold()))
+        .title(Span::styled(title_str, Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
 
     let items: Vec<ListItem> = app
         .episode_list
@@ -1385,11 +1477,11 @@ fn draw_episode_list(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, ep)| {
             let is_selected = i == app.selected_episode;
-            let prefix = if is_selected { "▶ " } else { "  " };
+            let prefix = if is_selected { if is_kitty { "󰁔 " } else { "▶ " } } else { "  " };
             let style = if is_selected {
-                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD).bg(C_SURFACE2)
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD).bg(theme.surface2)
             } else {
-                Style::default().fg(C_TEXT)
+                Style::default().fg(theme.text)
             };
             ListItem::new(format!("{}E{:02}: {}", prefix, ep.episode_number, ep.name)).style(style)
         })
@@ -1400,69 +1492,74 @@ fn draw_episode_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
 
     // Right: Selected Episode details
+    let info_icon = if is_kitty { "󰋖" } else { "ℹ️" };
     let details_block = Block::default()
-        .title(Span::styled(" ℹ️  Episode Details ", Style::default().fg(C_ACCENT2).bold()))
+        .title(Span::styled(format!(" {} Episode Details ", info_icon), Style::default().fg(theme.accent2).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(C_BORDER))
-        .style(Style::default().bg(C_SURFACE));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
     
     let inner_area = details_block.inner(chunks[1]);
     f.render_widget(details_block, chunks[1]);
 
     if let Some(episode) = app.episode_list.get(app.selected_episode) {
+        let rating_icon = if is_kitty { "󰓎" } else { "★" };
         let mut lines = vec![
             Line::from(vec![
-                Span::styled("Show:         ", Style::default().fg(C_MUTED)),
-                Span::styled(&movie.title, Style::default().fg(C_TEXT)),
+                Span::styled("Show:         ", Style::default().fg(theme.muted)),
+                Span::styled(&movie.title, Style::default().fg(theme.text)),
             ]),
             Line::from(vec![
-                Span::styled("Season / Ep:  ", Style::default().fg(C_MUTED)),
-                Span::styled(format!("Season {}, Episode {}", episode.season_number, episode.episode_number), Style::default().fg(C_TEXT).bold()),
+                Span::styled("Season / Ep:  ", Style::default().fg(theme.muted)),
+                Span::styled(format!("Season {}, Episode {}", episode.season_number, episode.episode_number), Style::default().fg(theme.text).bold()),
             ]),
             Line::from(vec![
-                Span::styled("Title:        ", Style::default().fg(C_MUTED)),
-                Span::styled(&episode.name, Style::default().fg(C_ACCENT2).bold()),
+                Span::styled("Title:        ", Style::default().fg(theme.muted)),
+                Span::styled(&episode.name, Style::default().fg(theme.accent2).bold()),
             ]),
         ];
 
         if let Some(ref air) = episode.air_date {
             lines.push(Line::from(vec![
-                Span::styled("Air Date:     ", Style::default().fg(C_MUTED)),
-                Span::styled(air, Style::default().fg(C_TEXT)),
+                Span::styled("Air Date:     ", Style::default().fg(theme.muted)),
+                Span::styled(air, Style::default().fg(theme.text)),
             ]));
         }
 
         if let Some(rating) = episode.vote_average {
             lines.push(Line::from(vec![
-                Span::styled("Rating:       ", Style::default().fg(C_MUTED)),
-                Span::styled(format!("★ {:.1}/10", rating), Style::default().fg(C_ACCENT).bold()),
+                Span::styled("Rating:       ", Style::default().fg(theme.muted)),
+                Span::styled(format!("{} {:.1}/10", rating_icon, rating), Style::default().fg(theme.accent).bold()),
             ]));
         }
 
         if let Some(runtime) = episode.runtime {
             lines.push(Line::from(vec![
-                Span::styled("Runtime:      ", Style::default().fg(C_MUTED)),
-                Span::styled(format!("{} min", runtime), Style::default().fg(C_TEXT)),
+                Span::styled("Runtime:      ", Style::default().fg(theme.muted)),
+                Span::styled(format!("{} min", runtime), Style::default().fg(theme.text)),
             ]));
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Overview:", Style::default().fg(C_MUTED).bold())));
+        lines.push(Line::from(Span::styled("Overview:", Style::default().fg(theme.muted).bold())));
 
         if let Some(ref overview) = episode.overview {
             let max_w = inner_area.width.saturating_sub(4) as usize;
             for line in wrap_text(overview, max_w) {
-                lines.push(Line::from(Span::styled(format!("  {}", line), Style::default().fg(C_TEXT))));
+                lines.push(Line::from(Span::styled(format!("  {}", line), Style::default().fg(theme.text))));
             }
         } else {
-            lines.push(Line::from(Span::styled("  No overview available.", Style::default().fg(C_MUTED))));
+            lines.push(Line::from(Span::styled("  No overview available.", Style::default().fg(theme.muted))));
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Press [Enter] / [p] to Play Episode", Style::default().fg(C_GREEN).bold())));
-        lines.push(Line::from(Span::styled("Press [d] to Download Episode", Style::default().fg(C_ACCENT2).bold())));
-        lines.push(Line::from(Span::styled("Press [Esc] to go back to season list", Style::default().fg(C_MUTED))));
+        let ent_icon = if is_kitty { "󰘳 / 󰐊" } else { "Enter / p" };
+        let d_icon = if is_kitty { "󰇚" } else { "d" };
+        let esc_icon = if is_kitty { "󰈆" } else { "Esc" };
+        lines.push(Line::from(Span::styled(format!("Press [{}] to Play Episode", ent_icon), Style::default().fg(theme.green).bold())));
+        lines.push(Line::from(Span::styled(format!("Press [{}] to Download Episode", d_icon), Style::default().fg(theme.accent2).bold())));
+        lines.push(Line::from(Span::styled(format!("Press [{}] to go back to season list", esc_icon), Style::default().fg(theme.muted))));
 
         f.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }),

@@ -1,6 +1,6 @@
 [package]
 name = "watchie"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["watchie contributors"]
 description = "A TUI/CLI browser for IMDB catalogs with streaming and download support via playimdb.com"

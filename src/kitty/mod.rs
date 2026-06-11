@@ -76,3 +76,12 @@ pub fn resize_for_terminal(img: &DynamicImage, max_cols: u32, max_rows: u32) -> 
     let max_h = max_rows * 16;
     img.thumbnail(max_w, max_h)
 }
+
+/// Send a desktop notification using Kitty's OSC 99 protocol.
+/// Format: <ESC>]99;i=<id>,t=<title>;<message><ESC>\
+pub fn notify(title: &str, message: &str) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    write!(stdout, "\x1b]99;i=watchie,t={};{}\x1b\\", title, message)?;
+    stdout.flush()?;
+    Ok(())
+}
