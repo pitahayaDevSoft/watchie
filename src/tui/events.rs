@@ -234,22 +234,31 @@ async fn handle_normal_key(
     }
     match key.code {
         // Movement
-        KeyCode::Up | KeyCode::Char('k') => app.move_up(),
-        KeyCode::Down | KeyCode::Char('j') => app.move_down(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.move_up();
+            trigger_preview_fetch(app, tx.clone());
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.move_down();
+            trigger_preview_fetch(app, tx.clone());
+        }
         KeyCode::PageUp => {
             for _ in 0..app.config.ui.page_size {
                 app.move_up();
             }
+            trigger_preview_fetch(app, tx.clone());
         }
         KeyCode::PageDown => {
             for _ in 0..app.config.ui.page_size {
                 app.move_down();
             }
+            trigger_preview_fetch(app, tx.clone());
         }
         KeyCode::Home | KeyCode::Char('g') => {
             app.selected_movie = 0;
             app.scroll_offset = 0;
             app.selected_category = 0;
+            trigger_preview_fetch(app, tx.clone());
         }
         KeyCode::End | KeyCode::Char('G') => {
             let len = app.current_list().len();
@@ -258,6 +267,7 @@ async fn handle_normal_key(
                 let page = app.config.ui.page_size;
                 app.scroll_offset = len.saturating_sub(page);
             }
+            trigger_preview_fetch(app, tx.clone());
         }
 
         // Back / Escape
@@ -370,6 +380,25 @@ async fn handle_search_key(
         _ => {}
     }
     Ok(())
+}
+
+fn trigger_preview_fetch(app: &App, tx: mpsc::UnboundedSender<AppMsg>) {
+    if (app.screen == Screen::MovieList || app.screen == Screen::Search) && app.config.ui.kitty_images {
+        if let Some(res) = app.selected_result() {
+            if !app.poster_cache.contains_key(&res.id) {
+                if let Some(poster_url) = res.poster_url.clone() {
+                    let id = res.id.clone();
+                    tokio::spawn(async move {
+                        if let Ok(client) = ImdbClient::new() {
+                            if let Ok(bytes) = client.download_poster(&poster_url).await {
+                                let _ = tx.send(AppMsg::PosterLoaded(id, bytes));
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
 }
 
 // ─── Action helpers ───────────────────────────────────────────────────────────

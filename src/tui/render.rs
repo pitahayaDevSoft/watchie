@@ -270,8 +270,15 @@ fn draw_home_art(f: &mut Frame, _app: &App, area: Rect, theme: &Theme) {
 // ─── Category list ────────────────────────────────────────────────────────────
 
 fn draw_category_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(area);
+
     let is_kitty = crate::kitty::is_kitty();
     let cat_icon = if is_kitty { "󰉋" } else { "📂" };
+    
+    // Left: Category List
     let block = Block::default()
         .title(Span::styled(format!(" {} Browse Categories ", cat_icon), Style::default().fg(theme.accent).bold()))
         .borders(Borders::ALL)
@@ -298,7 +305,65 @@ fn draw_category_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
     let mut state = ListState::default();
     state.select(Some(app.selected_category));
-    f.render_stateful_widget(List::new(items).block(block), area, &mut state);
+    f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
+
+    // Right: Category Preview/Info
+    draw_category_preview(f, app, chunks[1], theme);
+}
+
+fn draw_category_preview(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let cat = &app.categories[app.selected_category];
+    let is_kitty = crate::kitty::is_kitty();
+    let icon = category_icon(cat.id);
+    
+    let block = Block::default()
+        .title(Span::styled(format!(" {} Preview ", icon), Style::default().fg(theme.accent2).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let desc = match cat.id {
+        "moviemeter" => "Trending movies right now based on IMDB traffic.",
+        "top" => "Highest rated movies of all time.",
+        "toptv" => "The greatest TV series ever made.",
+        "boxoffice" => "The top-grossing movies in theaters this weekend.",
+        "comingsoon" => "Anticipated movies hitting the screens very soon.",
+        "oscar-winners" => "Legendary movies that have earned an Academy Award.",
+        id if id.contains("action") => "Explosive thrills, fast-paced chases, and heroic feats.",
+        id if id.contains("adventure") => "Epic journeys and explorations of unknown worlds.",
+        id if id.contains("animation") => "Masterpieces of visual storytelling from top studios.",
+        id if id.contains("comedy") => "The best humor, from sitcoms to satirical films.",
+        _ => "Explore our curated catalog and stream in high quality.",
+    };
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("   {} ", icon), Style::default().fg(theme.accent).bold()),
+            Span::styled(cat.name, Style::default().fg(theme.text).bold().add_modifier(Modifier::UNDERLINED)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("   Category Info:", Style::default().fg(theme.muted).bold())
+        ]),
+    ];
+
+    let max_w = inner.width.saturating_sub(6) as usize;
+    for line in wrap_text(desc, max_w) {
+        lines.push(Line::from(format!("   {}", line)));
+    }
+
+    lines.push(Line::from(""));
+    let ent_icon = if is_kitty { "󰘳" } else { "Enter" };
+    lines.push(Line::from(vec![
+        Span::styled(format!("   Press [{}] to explore {}...", ent_icon, cat.name), Style::default().fg(theme.accent2))
+    ]));
+
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn category_icon(id: &str) -> &'static str {
@@ -330,8 +395,13 @@ fn category_icon(id: &str) -> &'static str {
 // ─── Movie list ───────────────────────────────────────────────────────────────
 
 fn draw_movie_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    let list = app.current_list();
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(area);
+
     let is_kitty = crate::kitty::is_kitty();
+    let list = app.current_list();
     let title_text = if app.screen == Screen::Search {
         let search_icon = if is_kitty { "󰍉" } else { "🔍" };
         format!(" {} Results for \"{}\" ({}) ", search_icon, app.search_query, list.len())
@@ -340,8 +410,126 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         format!(" {} {} ({}) ", movie_icon, app.list_title, list.len())
     };
 
+    // Left Panel: The List
     let block = Block::default()
         .title(Span::styled(title_text, Style::default().fg(theme.accent).bold()))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.surface));
+
+    let inner_list = block.inner(chunks[0]);
+    f.render_widget(block, chunks[0]);
+
+    if list.is_empty() {
+        let hint = if is_kitty { "\n  󰍉 No results yet. Press 󰘳 Enter on a category or use / to search." } else { "\n  No results yet. Press Enter on a category or use / to search." };
+        f.render_widget(
+            Paragraph::new(hint)
+                .style(Style::default().fg(theme.muted))
+                .alignment(Alignment::Left),
+            inner_list,
+        );
+    } else {
+        // Column header
+        let header_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(inner_list);
+
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!("{:<4} ", "#"), Style::default().fg(theme.muted)),
+                Span::styled(format!("{:<25}", "Title"), Style::default().fg(theme.muted)),
+                Span::styled(format!("{:<6}", "Year"), Style::default().fg(theme.muted)),
+                Span::styled(format!("{:<8}", "Rating"), Style::default().fg(theme.muted)),
+            ])),
+            header_chunks[0],
+        );
+
+        let visible = header_chunks[1].height as usize;
+        let start = app.scroll_offset;
+        let end = (start + visible).min(list.len());
+        let slice = &list[start..end];
+
+        let items: Vec<ListItem> = slice
+            .iter()
+            .enumerate()
+            .map(|(rel_i, r)| {
+                let abs_i = start + rel_i;
+                let is_selected = abs_i == app.selected_movie;
+
+                let year = r.year.map(|y| y.to_string()).unwrap_or_else(|| "─".into());
+                let rating_icon = if is_kitty { "󰓎" } else { "★" };
+                let rating = r
+                    .rating
+                    .map(|rt| format!("{}{:.1}", rating_icon, rt))
+                    .unwrap_or_else(|| "─".into());
+                let title = truncate(&r.title, 24);
+
+                let num_str = format!("{:>3}. ", abs_i + 1);
+
+                if is_selected {
+                    ListItem::new(Line::from(vec![
+                        Span::styled(num_str, Style::default().fg(theme.accent).bold()),
+                        Span::styled(
+                            format!("{:<25}", title),
+                            Style::default().fg(theme.bg).bg(theme.accent).bold(),
+                        ),
+                        Span::styled(
+                            format!("{:<6}", year),
+                            Style::default().fg(theme.bg).bg(theme.accent),
+                        ),
+                        Span::styled(
+                            format!("{:<8}", rating),
+                            Style::default().fg(theme.bg).bg(theme.accent),
+                        ),
+                    ]))
+                } else {
+                    let title_color = if abs_i.is_multiple_of(2) { theme.text } else { theme.muted };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(num_str, Style::default().fg(theme.muted)),
+                        Span::styled(format!("{:<25}", title), Style::default().fg(title_color)),
+                        Span::styled(format!("{:<6}", year), Style::default().fg(theme.muted)),
+                        Span::styled(
+                            format!("{:<8}", rating),
+                            Style::default().fg(theme.accent),
+                        ),
+                    ]))
+                }
+            })
+            .collect();
+
+        let mut state = ListState::default();
+        let selected_in_view = if app.selected_movie >= start {
+            Some(app.selected_movie - start)
+        } else {
+            None
+        };
+        state.select(selected_in_view);
+
+        f.render_stateful_widget(List::new(items), header_chunks[1], &mut state);
+
+        // Scrollbar
+        let mut scroll_state = ScrollbarState::new(list.len()).position(app.scroll_offset);
+        f.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .style(Style::default().fg(theme.border)),
+            chunks[0].inner(Margin { horizontal: 0, vertical: 1 }),
+            &mut scroll_state,
+        );
+    }
+
+    // Right Panel: The Preview
+    draw_movie_preview(f, app, chunks[1], theme);
+}
+
+fn draw_movie_preview(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let result = app.selected_result();
+    let is_kitty = crate::kitty::is_kitty();
+    let preview_icon = if is_kitty { "󰟖" } else { "🎬" };
+
+    let block = Block::default()
+        .title(Span::styled(format!(" {} Quick Preview ", preview_icon), Style::default().fg(theme.accent2).bold()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
@@ -350,112 +538,77 @@ fn draw_movie_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if list.is_empty() {
-        let hint = if is_kitty { "\n  󰍉 No results yet. Press 󰘳 Enter on a category or use / to search." } else { "\n  No results yet. Press Enter on a category or use / to search." };
+    if let Some(res) = result {
+        // Layout: Top = Metadata, Bottom = Poster
+        let preview_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(7), Constraint::Min(0)])
+            .split(inner);
+
+        // Metadata
+        let rating_icon = if is_kitty { "󰓎" } else { "★" };
+        let rating = res.rating.map(|r| format!("{} {:.1}/10", rating_icon, r)).unwrap_or_else(|| "N/A".into());
+        let year = res.year.map(|y| y.to_string()).unwrap_or_else(|| "Unknown".into());
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("  Title:    ", Style::default().fg(theme.muted)),
+                Span::styled(&res.title, Style::default().fg(theme.text).bold()),
+            ]),
+            Line::from(vec![
+                Span::styled("  Year:     ", Style::default().fg(theme.muted)),
+                Span::styled(year, Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Rating:   ", Style::default().fg(theme.muted)),
+                Span::styled(rating, Style::default().fg(theme.accent).bold()),
+            ]),
+            Line::from(vec![
+                Span::styled("  Type:     ", Style::default().fg(theme.muted)),
+                Span::styled(res.content_type.to_string(), Style::default().fg(theme.purple)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  [ Enter ] View full detail & streams", Style::default().fg(theme.accent2).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+        f.render_widget(Paragraph::new(lines), preview_chunks[0]);
+
+        // Poster
+        if app.config.ui.kitty_images && area.width > 30 {
+            let poster_area = centered_rect(60, 80, preview_chunks[1]);
+            let poster_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+            let inner_poster = poster_block.inner(poster_area);
+            f.render_widget(poster_block, poster_area);
+
+            if let Some(bytes) = app.poster_cache.get(&res.id) {
+                let mut drawn = app.kitty_image_drawn.borrow_mut();
+                if drawn.as_ref() != Some(&res.id) {
+                    let _ = crate::kitty::clear_images();
+                    let _ = crossterm::queue!(
+                        std::io::stdout(),
+                        crossterm::cursor::MoveTo(inner_poster.x, inner_poster.y)
+                    );
+                    let _ = crate::kitty::display_image_bytes(bytes, inner_poster.width as u32, inner_poster.height as u32);
+                    *drawn = Some(res.id.clone());
+                }
+            } else {
+                let hint = if is_kitty { "\n\n  󰋩\n Loading..." } else { "\n\n  🖼️\n Loading..." };
+                f.render_widget(
+                    Paragraph::new(hint).alignment(Alignment::Center).style(Style::default().fg(theme.muted)),
+                    inner_poster,
+                );
+            }
+        }
+    } else {
         f.render_widget(
-            Paragraph::new(hint)
-                .style(Style::default().fg(theme.muted))
-                .alignment(Alignment::Left),
+            Paragraph::new("Select a title to see details").alignment(Alignment::Center).style(Style::default().fg(theme.muted)),
             inner,
         );
-        return;
     }
-
-    // Column header
-    let header_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(inner);
-
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(format!("{:<4} ", "#"), Style::default().fg(theme.muted)),
-            Span::styled(format!("{:<45}", "Title"), Style::default().fg(theme.muted)),
-            Span::styled(format!("{:<6}", "Year"), Style::default().fg(theme.muted)),
-            Span::styled(format!("{:<8}", "Rating"), Style::default().fg(theme.muted)),
-            Span::styled("Type", Style::default().fg(theme.muted)),
-        ])),
-        header_chunks[0],
-    );
-
-    let visible = header_chunks[1].height as usize;
-    let start = app.scroll_offset;
-    let end = (start + visible).min(list.len());
-    let slice = &list[start..end];
-
-    let items: Vec<ListItem> = slice
-        .iter()
-        .enumerate()
-        .map(|(rel_i, r)| {
-            let abs_i = start + rel_i;
-            let is_selected = abs_i == app.selected_movie;
-
-            let year = r.year.map(|y| y.to_string()).unwrap_or_else(|| "─".into());
-            let rating_icon = if is_kitty { "󰓎" } else { "★" };
-            let rating = r
-                .rating
-                .map(|rt| format!("{}{:.1}", rating_icon, rt))
-                .unwrap_or_else(|| "─".into());
-            let title = truncate(&r.title, 44);
-            let ctype = r.content_type.to_string();
-            let ctype_short = if ctype.len() > 8 { &ctype[..8] } else { &ctype };
-
-            let num_str = format!("{:>3}. ", abs_i + 1);
-
-            if is_selected {
-                ListItem::new(Line::from(vec![
-                    Span::styled(num_str, Style::default().fg(theme.accent).bold()),
-                    Span::styled(
-                        format!("{:<45}", title),
-                        Style::default().fg(theme.bg).bg(theme.accent).bold(),
-                    ),
-                    Span::styled(
-                        format!("{:<6}", year),
-                        Style::default().fg(theme.bg).bg(theme.accent),
-                    ),
-                    Span::styled(
-                        format!("{:<8}", rating),
-                        Style::default().fg(theme.bg).bg(theme.accent),
-                    ),
-                    Span::styled(
-                        ctype_short.to_owned(),
-                        Style::default().fg(theme.bg).bg(theme.accent),
-                    ),
-                ]))
-            } else {
-                let title_color = if abs_i.is_multiple_of(2) { theme.text } else { theme.muted };
-                ListItem::new(Line::from(vec![
-                    Span::styled(num_str, Style::default().fg(theme.muted)),
-                    Span::styled(format!("{:<45}", title), Style::default().fg(title_color)),
-                    Span::styled(format!("{:<6}", year), Style::default().fg(theme.muted)),
-                    Span::styled(
-                        format!("{:<8}", rating),
-                        Style::default().fg(theme.accent),
-                    ),
-                    Span::styled(ctype_short.to_string(), Style::default().fg(theme.purple)),
-                ]))
-            }
-        })
-        .collect();
-
-    let mut state = ListState::default();
-    let selected_in_view = if app.selected_movie >= start {
-        Some(app.selected_movie - start)
-    } else {
-        None
-    };
-    state.select(selected_in_view);
-
-    f.render_stateful_widget(List::new(items), header_chunks[1], &mut state);
-
-    // Scrollbar
-    let mut scroll_state = ScrollbarState::new(list.len()).position(app.scroll_offset);
-    f.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .style(Style::default().fg(theme.border)),
-        area.inner(Margin { horizontal: 0, vertical: 1 }),
-        &mut scroll_state,
-    );
 }
 
 // ─── Movie detail ─────────────────────────────────────────────────────────────

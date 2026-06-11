@@ -18,8 +18,8 @@ pub struct Theme {
 impl Theme {
     pub fn dark() -> Self {
         Self {
-            bg: Color::Rgb(10, 10, 18),
-            surface: Color::Rgb(20, 20, 32),
+            bg: Color::Reset,
+            surface: Color::Reset,
             surface2: Color::Rgb(28, 28, 42),
             border: Color::Rgb(48, 48, 72),
             accent: Color::Rgb(255, 177, 0), // amber
