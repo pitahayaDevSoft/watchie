@@ -21,8 +21,8 @@ pub async fn search(query: &str, limit: usize, _config: &Config) -> Result<()> {
     }
 
     println!(
-        "\n{:<12} {:<40} {:<6} {:<10} {}",
-        "IMDB ID", "Title", "Year", "Rating", "Type"
+        "\n{:<12} {:<40} {:<6} {:<10} Type",
+        "IMDB ID", "Title", "Year", "Rating"
     );
     println!("{}", "─".repeat(80));
 
@@ -315,8 +315,8 @@ pub async fn top(category: Option<&str>, limit: usize, _config: &Config) -> Resu
     }
 
     println!(
-        "\n{:>4}  {:<12} {:<40} {:<6} {}",
-        "#", "IMDB ID", "Title", "Year", "Rating"
+        "\n{:>4}  {:<12} {:<40} {:<6} Rating",
+        "#", "IMDB ID", "Title", "Year"
     );
     println!("{}", "─".repeat(75));
 
